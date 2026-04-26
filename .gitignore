@@ -1,0 +1,12 @@
+node_modules/
+build/
+dist/
+dist_electron/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+save_to_txt.py
+output.txt
+release/

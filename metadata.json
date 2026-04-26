@@ -1,0 +1,6 @@
+{
+  "name": "Autonomous AI Agent UI",
+  "description": "A clean, Claude-inspired UI for an autonomous AI agent Electron application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
