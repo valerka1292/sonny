@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import MessageList from './components/MessageList';
 import InputArea from './components/InputArea';
+import PendingConfirmationCard from './components/PendingConfirmationCard';
 import SettingsModal from './components/SettingsModal';
 import Titlebar from './components/Titlebar';
 import { AgentMode, LlmHistoryMessage, Message, ToolCall } from './types';
@@ -413,6 +414,15 @@ export default function App() {
           onApprove={handleApproveConfirmation}
           onReject={handleRejectConfirmation}
         />
+
+        {pendingConfirmation && (
+          <PendingConfirmationCard
+            toolCall={pendingConfirmation.toolCall}
+            output={pendingConfirmation.output}
+            onApprove={handleApproveConfirmation}
+            onReject={handleRejectConfirmation}
+          />
+        )}
 
         <InputArea
           mode={mode}
