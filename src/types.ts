@@ -46,8 +46,15 @@ export interface ChatData {
   createdAt: number;
   updatedAt: number;
   messages: StoredMessage[];
-  llmHistory: { role: string; content: string; tool_call_id?: string; tool_calls?: any[] }[];
+  llmHistory: LlmHistoryMessage[];
   contextTokensUsed: number;
+}
+
+export interface LlmHistoryMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  tool_call_id?: string;
+  tool_calls?: unknown[];
 }
 
 export interface Provider {

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SetStateAction } from 'react';
-import type { ChatData, ChatSession, Message, StoredMessage } from '../types';
+import type { ChatData, ChatSession, LlmHistoryMessage, Message, StoredMessage } from '../types';
 import { useChatStorage } from '../context/StorageContext';
 import { OperationQueue } from '../services/operationQueue';
+import { chatDataSchema } from '../shared/chatSchemas';
 
 function generateChatId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -63,7 +64,7 @@ export function useChats() {
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [messagesState, setMessagesState, messagesRef] = useSyncedState<Message[]>([]);
-  const [llmHistoryState, setLlmHistoryState, llmHistoryRef] = useSyncedState<{ role: string; content: string }[]>([]);
+  const [llmHistoryState, setLlmHistoryState, llmHistoryRef] = useSyncedState<LlmHistoryMessage[]>([]);
   const [contextTokensUsedState, setContextTokensUsedState, contextTokensUsedRef] = useSyncedState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,7 +81,7 @@ export function useChats() {
     setMessagesState(next);
   }, []);
 
-  const setLlmHistory = useCallback((next: SetStateAction<{ role: string; content: string }[]>) => {
+  const setLlmHistory = useCallback((next: SetStateAction<LlmHistoryMessage[]>) => {
     setLlmHistoryState(next);
   }, []);
 
@@ -163,7 +164,7 @@ export function useChats() {
     async (
       chatId: string,
       nextMessages: Message[],
-      nextLlmHistory: { role: string; content: string }[],
+      nextLlmHistory: LlmHistoryMessage[],
       nextContextTokensUsed: number,
       titleFallback?: string,
     ) => {
@@ -181,7 +182,8 @@ export function useChats() {
           llmHistory: nextLlmHistory,
           contextTokensUsed: nextContextTokensUsed,
         };
-        const updatedList = await chatStorage.save(chatId, data);
+        const validatedData = chatDataSchema.parse(data);
+        const updatedList = await chatStorage.save(chatId, validatedData);
         setChats(updatedList);
       } catch (error) {
         logStorageError(`save chat ${chatId}`, error);
@@ -305,7 +307,7 @@ export function useChats() {
     async (
       chatId: string,
       nextMessages: Message[],
-      nextLlmHistory: { role: string; content: string }[],
+      nextLlmHistory: LlmHistoryMessage[],
       nextContextTokensUsed: number,
       titleFallback?: string,
     ) => {

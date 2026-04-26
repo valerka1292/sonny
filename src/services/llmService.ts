@@ -1,4 +1,4 @@
-import type { Provider } from '../types';
+import type { LlmHistoryMessage, Provider } from '../types';
 
 export interface StreamCallbacks {
   onContent: (text: string) => void;
@@ -126,7 +126,7 @@ export async function getToolDefinitions(): Promise<any[]> {
 
 export async function streamChatCompletion(
   provider: Provider,
-  messages: { role: string; content: string }[],
+  messages: LlmHistoryMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
   tools?: unknown[],

@@ -71,6 +71,11 @@ Sonny is evolving from a research tool to a fully operational system agent.
     ```
 3.  **Environment:** Configure your providers (OpenAI, Anthropic, or compatible proxies) directly in the app settings.
 
+### Development HMR
+
+By default, `.env.example` sets `VITE_ENABLE_HMR=false` to keep remote AI studio sessions stable.  
+For normal local development, set `VITE_ENABLE_HMR=true` in your local `.env` to enable hot-module replacement.
+
 ---
 
 <div align="center">
