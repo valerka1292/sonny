@@ -187,10 +187,22 @@ function registerIpc() {
     await ensureDir(sandboxPath);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(new Error(`Tool ${name} timed out`)), TOOL_EXEC_TIMEOUT_MS);
-    const context = { cwd: sandboxPath, signal: controller.signal, timeoutMs: TOOL_EXEC_TIMEOUT_MS };
+    const context = {
+      cwd: sandboxPath,
+      signal: controller.signal,
+      timeoutMs: TOOL_EXEC_TIMEOUT_MS,
+      throwIfAborted: () => {
+        if (controller.signal.aborted) throw new Error(`Tool ${name} aborted`);
+      },
+    };
     const parsed = tool.inputSchema.parse(input);
     try {
-      return await tool.execute(parsed, context);
+      return await Promise.race([
+        tool.execute(parsed, context),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Tool ${name} timed out after ${TOOL_EXEC_TIMEOUT_MS}ms`)), TOOL_EXEC_TIMEOUT_MS),
+        ),
+      ]);
     } finally {
       clearTimeout(timeout);
     }
