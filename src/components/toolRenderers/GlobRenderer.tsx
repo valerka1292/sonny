@@ -38,7 +38,7 @@ export default function GlobRenderer({ toolCall }: ToolRendererProps) {
       <div className="w-full flex items-start gap-2 px-3 py-2 text-xs text-text-secondary bg-bg-3/30 text-left">
         <div className="flex items-center justify-center w-4 h-4 mt-0.5">{getStatusIcon(status)}</div>
         <div className="font-mono whitespace-pre-wrap break-words flex-1">
-          {`▼ glob\n${headerPrefix} ${pathPart} ${pattern}`}
+          {`glob\n${headerPrefix} ${pathPart} ${pattern}`}
         </div>
       </div>
 
