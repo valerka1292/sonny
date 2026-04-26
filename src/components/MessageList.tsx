@@ -152,12 +152,25 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
         })}
 
         {pendingConfirmation && onApprove && onReject && (
-          <PendingConfirmationCard
-            toolCall={pendingConfirmation.toolCall}
-            output={pendingConfirmation.output}
-            onApprove={onApprove}
-            onReject={onReject}
-          />
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col gap-2 items-start"
+          >
+            <div className="flex gap-3 w-full items-start">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-bg-2 to-bg-3 border border-border flex items-center justify-center shrink-0 mt-0.5">
+                <Cpu size={14} className="text-text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <PendingConfirmationCard
+                  toolCall={pendingConfirmation.toolCall}
+                  output={pendingConfirmation.output}
+                  onApprove={onApprove}
+                  onReject={onReject}
+                />
+              </div>
+            </div>
+          </motion.div>
         )}
 
         {isTyping && (

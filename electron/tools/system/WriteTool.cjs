@@ -24,6 +24,7 @@ Usage:
     this.inputSchema = z.strictObject({
       file_path: z.string().describe('Absolute or relative path to the file to write. Must be inside the sandbox.'),
       content: z.string().describe('The content to write to the file.'),
+      apply: z.boolean().optional().describe('Internal flag. When true, commits the prepared write to disk.'),
     });
 
     const diffLineSchema = z.object({
@@ -52,6 +53,7 @@ Usage:
         filePath: z.string(),
         hunks: z.array(diffHunkSchema),
       }),
+      applied: z.boolean(),
     });
   }
 
@@ -79,16 +81,18 @@ Usage:
       }
     }
 
-    await atomicWriteFile(fullFilePath, input.content);
-
-    readFileState.set(fullFilePath, {
-      content: input.content,
-      timestamp: Date.now(),
-    });
-
     const type = oldContent === null ? 'create' : 'update';
     const structuredPatch = oldContent === null ? [] : generateDiffHunks(oldContent, input.content);
     const relativePath = toRelativePath(fullFilePath, cwd);
+    const shouldApply = Boolean(input.apply);
+
+    if (shouldApply) {
+      await atomicWriteFile(fullFilePath, input.content);
+      readFileState.set(fullFilePath, {
+        content: input.content,
+        timestamp: Date.now(),
+      });
+    }
 
     return {
       type,
@@ -100,6 +104,7 @@ Usage:
         filePath: relativePath,
         hunks: structuredPatch,
       },
+      applied: shouldApply,
     };
   }
 }

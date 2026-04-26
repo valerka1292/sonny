@@ -255,9 +255,22 @@ export default function App() {
                       setPendingConfirmation(null);
 
                       if (decision.approved) {
-                        const resultContent = output?.type === 'update'
-                          ? `The file ${output.filePath} has been updated successfully.`
-                          : `File created successfully at: ${output.filePath}`;
+                        const committedOutput = await executeTool(tc.function!.name!, {
+                          file_path: output.filePath,
+                          content: output.content,
+                          apply: true,
+                        });
+
+                        currentMessages[tcIndexInMsg] = {
+                          ...currentMessages[tcIndexInMsg],
+                          toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
+                            t.index === tc.index ? { ...t, result: { status: 'success', output: committedOutput } } : t
+                          ),
+                        };
+
+                        const resultContent = committedOutput?.type === 'update'
+                          ? `The file ${committedOutput.filePath} has been updated successfully.`
+                          : `File created successfully at: ${committedOutput.filePath}`;
                         toolResultsHistory.push({
                           role: 'tool',
                           tool_call_id: tc.id,
@@ -277,10 +290,25 @@ export default function App() {
                         });
                       }
                     } else {
+                      const finalOutput = toolMode === 'rw'
+                        ? await executeTool(tc.function!.name!, {
+                          file_path: output.filePath,
+                          content: output.content,
+                          apply: true,
+                        })
+                        : output;
+
+                      currentMessages[tcIndexInMsg] = {
+                        ...currentMessages[tcIndexInMsg],
+                        toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
+                          t.index === tc.index ? { ...t, result: { status: 'success', output: finalOutput } } : t
+                        ),
+                      };
+
                       toolResultsHistory.push({
                         role: 'tool',
                         tool_call_id: tc.id,
-                        content: typeof output === 'string' ? output : JSON.stringify(output),
+                        content: typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput),
                       });
                     }
                   } catch (error: any) {
@@ -414,15 +442,6 @@ export default function App() {
           onApprove={handleApproveConfirmation}
           onReject={handleRejectConfirmation}
         />
-
-        {pendingConfirmation && (
-          <PendingConfirmationCard
-            toolCall={pendingConfirmation.toolCall}
-            output={pendingConfirmation.output}
-            onApprove={handleApproveConfirmation}
-            onReject={handleRejectConfirmation}
-          />
-        )}
 
         <InputArea
           mode={mode}
