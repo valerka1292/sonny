@@ -53,14 +53,25 @@ export default function App() {
   const [mode, setMode] = useState<AgentMode>('Chat');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [yoloMode, setYoloMode] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    toolCall: ToolCall;
+    output: any;
+  } | null>(null);
   const { activeProvider } = useProviders();
   const pendingRequestControllerRef = useRef<AbortController | null>(null);
+  const confirmationResolverRef = useRef<((value: { approved: boolean; reason?: string }) => void) | null>(null);
   const isMountedRef = useRef(true);
 
   const cancelPendingRequest = useCallback(() => {
     console.log('[App] Cancelling pending request');
     pendingRequestControllerRef.current?.abort();
     pendingRequestControllerRef.current = null;
+    if (confirmationResolverRef.current) {
+      confirmationResolverRef.current({ approved: false, reason: 'Request cancelled by user.' });
+      confirmationResolverRef.current = null;
+    }
+    setPendingConfirmation(null);
   }, []);
 
   useEffect(() => {
@@ -192,8 +203,8 @@ export default function App() {
               
               // Correct LLM History update
               const historyWithAssistant: LlmHistoryMessage[] = [...history, {
-                role: 'assistant', 
-                content: finalAssistantContent || '', 
+                role: 'assistant',
+                content: finalAssistantContent || '',
                 ...(finalToolCallsList.length > 0 ? { tool_calls: finalToolCallsList.map(tc => ({
                   id: tc.id,
                   type: 'function',
@@ -224,7 +235,9 @@ export default function App() {
 
                     const args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
                     const output = await executeTool(tc.function!.name!, args);
-                    
+                    const toolDef = toolDefinitions.find(t => t.function?.name === tc.function?.name);
+                    const toolMode = toolDef?.mode ?? 'ro';
+
                     currentMessages[tcIndexInMsg] = {
                       ...currentMessages[tcIndexInMsg],
                       toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t => 
@@ -232,12 +245,71 @@ export default function App() {
                       )
                     };
                     
-                    // FIXED: Correct tool message format
-                    toolResultsHistory.push({ 
-                      role: 'tool', 
-                      tool_call_id: tc.id, 
-                      content: typeof output === 'string' ? output : JSON.stringify(output) 
-                    });
+                    if (toolMode === 'rw' && !yoloMode) {
+                      const decision = await new Promise<{ approved: boolean; reason?: string }>((resolve) => {
+                        confirmationResolverRef.current = resolve;
+                        setPendingConfirmation({ toolCall: tc, output });
+                      });
+                      confirmationResolverRef.current = null;
+                      setPendingConfirmation(null);
+
+                      if (decision.approved) {
+                        const committedOutput = await executeTool(tc.function!.name!, {
+                          file_path: output.filePath,
+                          content: output.content,
+                          apply: true,
+                        });
+
+                        currentMessages[tcIndexInMsg] = {
+                          ...currentMessages[tcIndexInMsg],
+                          toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
+                            t.index === tc.index ? { ...t, result: { status: 'success', output: committedOutput } } : t
+                          ),
+                        };
+
+                        const resultContent = committedOutput?.type === 'update'
+                          ? `The file ${committedOutput.filePath} has been updated successfully.`
+                          : `File created successfully at: ${committedOutput.filePath}`;
+                        toolResultsHistory.push({
+                          role: 'tool',
+                          tool_call_id: tc.id,
+                          content: resultContent,
+                        });
+                      } else {
+                        currentMessages[tcIndexInMsg] = {
+                          ...currentMessages[tcIndexInMsg],
+                          toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
+                            t.index === tc.index ? { ...t, result: { status: 'error', error: decision.reason || 'User rejected operation' } } : t
+                          ),
+                        };
+                        toolResultsHistory.push({
+                          role: 'tool',
+                          tool_call_id: tc.id,
+                          content: `Error: User rejected the operation. Reason: ${decision.reason || 'No reason provided'}`,
+                        });
+                      }
+                    } else {
+                      const finalOutput = toolMode === 'rw'
+                        ? await executeTool(tc.function!.name!, {
+                          file_path: output.filePath,
+                          content: output.content,
+                          apply: true,
+                        })
+                        : output;
+
+                      currentMessages[tcIndexInMsg] = {
+                        ...currentMessages[tcIndexInMsg],
+                        toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
+                          t.index === tc.index ? { ...t, result: { status: 'success', output: finalOutput } } : t
+                        ),
+                      };
+
+                      toolResultsHistory.push({
+                        role: 'tool',
+                        tool_call_id: tc.id,
+                        content: typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput),
+                      });
+                    }
                   } catch (error: any) {
                     currentMessages[tcIndexInMsg] = {
                       ...currentMessages[tcIndexInMsg],
@@ -281,7 +353,7 @@ export default function App() {
               };
               const erroredMessages = [...currentMessages, errorAssistantMsg];
               setMessages(erroredMessages);
-              const erroredHistory = [...history, { role: 'assistant', content: errorAssistantMsg.content }];
+              const erroredHistory: LlmHistoryMessage[] = [...history, { role: 'assistant', content: errorAssistantMsg.content }];
               setLlmHistory(erroredHistory);
               await persistChatData(chatIdSnapshot, erroredMessages, erroredHistory, contextTokensUsedRef.current);
             },
@@ -308,6 +380,18 @@ export default function App() {
       setIsTyping, setLlmHistory, setMessages
     ],
   );
+
+  const handleApproveConfirmation = useCallback(() => {
+    if (!confirmationResolverRef.current) return;
+    confirmationResolverRef.current({ approved: true });
+    confirmationResolverRef.current = null;
+  }, []);
+
+  const handleRejectConfirmation = useCallback((reason: string) => {
+    if (!confirmationResolverRef.current) return;
+    confirmationResolverRef.current({ approved: false, reason });
+    confirmationResolverRef.current = null;
+  }, []);
 
   const handleNewChat = useCallback(async () => {
     cancelPendingRequest();
@@ -350,7 +434,13 @@ export default function App() {
       <main className="relative flex h-full flex-1 flex-col overflow-hidden">
         <Titlebar chatTitle={chatTitle} onRename={handleRenameChat} />
 
-        <MessageList messages={messages} isTyping={isTyping} />
+        <MessageList
+          messages={messages}
+          isTyping={isTyping}
+          pendingConfirmation={pendingConfirmation}
+          onApprove={handleApproveConfirmation}
+          onReject={handleRejectConfirmation}
+        />
 
         <InputArea
           mode={mode}
@@ -360,6 +450,9 @@ export default function App() {
           isAgentRunning={isAgentRunning}
           onToggleAgent={() => setIsAgentRunning(!isAgentRunning)}
           contextTokensUsed={contextTokensUsed}
+          yoloMode={yoloMode}
+          onYoloModeChange={setYoloMode}
+          disabled={Boolean(pendingConfirmation)}
         />
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

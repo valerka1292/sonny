@@ -1,5 +1,6 @@
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Loader2 } from 'lucide-react';
 import type { DiffFile, ToolRendererProps } from '../../types';
 
 function getLanguage(filePath: string): string {
@@ -14,9 +15,31 @@ function getLanguage(filePath: string): string {
 export default function DiffRenderer({ toolCall }: ToolRendererProps) {
   const output = toolCall.result?.output as { diff?: DiffFile } | undefined;
   const diff = output?.diff;
+  const status = toolCall.result?.status;
+
+  if (status === 'running') {
+    return (
+      <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
+        <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
+          {toolCall.function?.name}: {toolCall.function?.arguments ? 'Writing file' : 'Running'}
+        </div>
+        <div className="px-3 py-3 text-xs text-text-secondary flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" />
+          Generating diff...
+        </div>
+      </div>
+    );
+  }
 
   if (!diff) {
-    return <div className="text-xs text-red-400">No diff data</div>;
+    return (
+      <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
+        <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
+          {toolCall.function?.name || 'Write'}
+        </div>
+        <div className="px-3 py-3 text-xs text-text-secondary">Generating diff...</div>
+      </div>
+    );
   }
 
   const language = diff.language || getLanguage(diff.filePath);

@@ -1,4 +1,4 @@
-import { ToolCall } from '../../types';
+import { DiffFile, DiffHunk, ToolCall } from '../../types';
 
 export function parseToolArguments(toolCall: ToolCall): Record<string, unknown> {
   const rawArgs = toolCall.function?.arguments;
@@ -10,4 +10,8 @@ export function parseToolArguments(toolCall: ToolCall): Record<string, unknown> 
   } catch {
     return {};
   }
+}
+
+export function buildDiffFile(filePath: string, hunks: DiffHunk[]): DiffFile {
+  return { filePath, hunks };
 }
