@@ -74,3 +74,26 @@ export interface ProvidersData {
   activeProviderId: string | null;
   providers: Record<string, Provider>;
 }
+
+
+export interface DiffLine {
+  type: 'context' | 'addition' | 'deletion';
+  content: string;
+  oldLine: number | null;
+  newLine: number | null;
+}
+
+export interface DiffHunk {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
+export interface DiffFile {
+  filePath: string;
+  language?: string;
+  hunks: DiffHunk[];
+}
