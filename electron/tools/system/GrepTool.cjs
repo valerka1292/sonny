@@ -1,9 +1,12 @@
 const { Tool } = require('../Tool.cjs');
 const { registry } = require('../registry.cjs');
 const { z } = require('zod');
-const path = require('path');
-const fs = require('fs/promises');
 const { ripGrep } = require('../../ripgrep.cjs');
+const {
+  checkPathInSandbox,
+  fileStatSafe,
+  toRelativePath,
+} = require('../utils/sandbox.cjs');
 
 // ─── Константы ────────────────────────────────────────────────
 const VCS_DIRECTORIES = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'];
@@ -23,30 +26,12 @@ function applyHeadLimit(items, limit, offset = 0) {
   };
 }
 
-async function fileStatSafe(filePath) {
-  try {
-    const stat = await fs.stat(filePath);
-    return stat;
-  } catch {
-    return null;
-  }
-}
-
-function toRelativePath(absPath, cwd) {
-  try {
-    return path.relative(cwd, absPath) || '.';
-  } catch {
-    return absPath;
-  }
-}
-
 class GrepTool extends Tool {
   constructor() {
     super();
     this.name = 'Grep';
     this.description = 'Search file contents with regex (ripgrep)';
-    this.ro = true;
-    this.rw = false;
+    this.mode = 'ro';
 
     this.inputSchema = z.object({
       pattern: z.string().describe('The regular expression pattern to search for in file contents'),
@@ -71,18 +56,9 @@ class GrepTool extends Tool {
     });
   }
 
-  checkPathInSandbox(userPath, cwd) {
-    const resolved = path.resolve(cwd, userPath || '.');
-    const sandboxRoot = path.resolve(cwd);
-    if (!resolved.startsWith(sandboxRoot + path.sep) && resolved !== sandboxRoot) {
-      throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
-    }
-    return resolved;
-  }
-
   async execute(input, context) {
     const { cwd, signal } = context;
-    const absolutePath = this.checkPathInSandbox(input.path, cwd);
+    const absolutePath = checkPathInSandbox(input.path, cwd);
 
     const args = ['--hidden'];
     for (const dir of VCS_DIRECTORIES) {
@@ -110,7 +86,7 @@ class GrepTool extends Tool {
 
     if (input.glob) {
       const patterns = input.glob.split(/\s+/).filter(Boolean);
-      for (const p of patterns) args.push('--glob', p);
+      for (const p of patterns) args.push(`--glob=${p}`);
     }
 
     try {

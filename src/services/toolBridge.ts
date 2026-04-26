@@ -3,9 +3,8 @@ const electron = (window as any).electron;
 export interface ToolInfo {
   name: string;
   description: string;
-  inputSchema: any;
-  ro: boolean;
-  rw: boolean;
+  inputSchema: Record<string, unknown>;
+  mode: 'ro' | 'rw';
 }
 
 export async function listTools(): Promise<ToolInfo[]> {

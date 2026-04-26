@@ -9,10 +9,8 @@ class Tool {
   inputSchema;
   /** @type {z.ZodTypeAny} */
   outputSchema;
-  /** @type {boolean} */
-  ro = true;
-  /** @type {boolean} */
-  rw = false;
+  /** @type {'ro'|'rw'} */
+  mode = 'ro';
   /** @type {'system'|'custom'} */
   category = 'system';
 

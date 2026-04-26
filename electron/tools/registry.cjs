@@ -21,8 +21,7 @@ class ToolRegistry {
       name: t.name,
       description: t.description,
       inputSchema: this._serializeSchema(t.inputSchema),
-      ro: t.ro,
-      rw: t.rw,
+      mode: t.mode || 'ro',
     }));
   }
 
