@@ -407,7 +407,13 @@ export default function App() {
       <main className="relative flex h-full flex-1 flex-col overflow-hidden">
         <Titlebar chatTitle={chatTitle} onRename={handleRenameChat} />
 
-        <MessageList messages={messages} isTyping={isTyping} />
+        <MessageList
+          messages={messages}
+          isTyping={isTyping}
+          pendingConfirmation={pendingConfirmation}
+          onApprove={handleApproveConfirmation}
+          onReject={handleRejectConfirmation}
+        />
 
         {pendingConfirmation && (
           <PendingConfirmationCard

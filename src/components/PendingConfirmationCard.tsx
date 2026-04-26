@@ -30,23 +30,25 @@ export default function PendingConfirmationCard({ toolCall, output, onApprove, o
   };
 
   return (
-    <div className="mx-auto my-2 w-full max-w-3xl rounded-lg border border-border bg-bg-2 p-4">
+    <div className="my-2 w-full rounded-lg border border-border bg-bg-2 p-4">
       <div className="mb-3 text-xs text-text-secondary">
         Pending confirmation: {toolCall.function?.name} {output.filePath ? `(${output.filePath})` : ''}
       </div>
 
       {isUpdate ? (
-        <DiffRenderer
-          toolCall={{
-            ...toolCall,
-            result: {
-              status: 'success',
-              output: {
-                diff: buildDiffFile(output.filePath || '', output.structuredPatch || []),
+        <div className="max-h-[300px] overflow-y-auto rounded-md border border-border">
+          <DiffRenderer
+            toolCall={{
+              ...toolCall,
+              result: {
+                status: 'success',
+                output: {
+                  diff: buildDiffFile(output.filePath || '', output.structuredPatch || []),
+                },
               },
-            },
-          }}
-        />
+            }}
+          />
+        </div>
       ) : (
         <div className="mb-3 rounded border border-green-500/30 bg-green-950/20 p-2 text-xs text-green-300">
           New file will be created at {output.filePath || 'unknown path'}.
