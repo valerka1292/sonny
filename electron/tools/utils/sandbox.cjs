@@ -27,6 +27,19 @@ function toRelativePath(absPath, cwd) {
   }
 }
 
+
+async function atomicWriteFile(targetPath, content) {
+  const tmpPath = `${targetPath}.tmp`;
+  try {
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(tmpPath, content, 'utf-8');
+    await fs.rename(tmpPath, targetPath);
+  } catch (error) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw error;
+  }
+}
+
 function extractGlobBaseDirectory(pattern) {
   const globChars = /[*?[{]/;
   const match = pattern.match(globChars);
@@ -64,4 +77,5 @@ module.exports = {
   fileStatSafe,
   toRelativePath,
   extractGlobBaseDirectory,
+  atomicWriteFile,
 };

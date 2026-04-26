@@ -4,6 +4,7 @@ const { z } = require('zod');
 const path = require('path');
 const fs = require('fs/promises');
 const { checkPathInSandbox, toRelativePath } = require('../utils/sandbox.cjs');
+const { readFileState } = require('./readFileState.cjs');
 
 const MAX_SIZE_BYTES = 256 * 1024;
 const BINARY_EXTENSIONS = new Set([
@@ -63,6 +64,11 @@ class ReadTool extends Tool {
     }
 
     const content = await fs.readFile(absolutePath, 'utf-8');
+
+    readFileState.set(absolutePath, {
+      content,
+      timestamp: Date.now(),
+    });
     const lines = content.split('\n');
     const totalLines = lines.length;
 

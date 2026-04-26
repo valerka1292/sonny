@@ -10,6 +10,7 @@ const rendererMap: Record<string, React.FC<ToolRendererProps>> = {
   Grep: GrepRenderer,
   WriteFile: DiffRenderer,
   EditFile: DiffRenderer,
+  Write: DiffRenderer,
   Read: ReadRenderer,
 };
 
