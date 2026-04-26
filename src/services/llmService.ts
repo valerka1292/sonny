@@ -116,6 +116,7 @@ export async function getToolDefinitions(): Promise<any[]> {
   const tools = await listTools();
   return tools.map(t => ({
     type: 'function' as const,
+    mode: t.mode,
     function: {
       name: t.name,
       description: t.description,

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import MessageList from './components/MessageList';
 import InputArea from './components/InputArea';
+import PendingConfirmationCard from './components/PendingConfirmationCard';
 import SettingsModal from './components/SettingsModal';
 import Titlebar from './components/Titlebar';
 import { AgentMode, LlmHistoryMessage, Message, ToolCall } from './types';
@@ -53,14 +54,25 @@ export default function App() {
   const [mode, setMode] = useState<AgentMode>('Chat');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [yoloMode, setYoloMode] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    toolCall: ToolCall;
+    output: any;
+  } | null>(null);
   const { activeProvider } = useProviders();
   const pendingRequestControllerRef = useRef<AbortController | null>(null);
+  const confirmationResolverRef = useRef<((value: { approved: boolean; reason?: string }) => void) | null>(null);
   const isMountedRef = useRef(true);
 
   const cancelPendingRequest = useCallback(() => {
     console.log('[App] Cancelling pending request');
     pendingRequestControllerRef.current?.abort();
     pendingRequestControllerRef.current = null;
+    if (confirmationResolverRef.current) {
+      confirmationResolverRef.current({ approved: false, reason: 'Request cancelled by user.' });
+      confirmationResolverRef.current = null;
+    }
+    setPendingConfirmation(null);
   }, []);
 
   useEffect(() => {
@@ -192,8 +204,8 @@ export default function App() {
               
               // Correct LLM History update
               const historyWithAssistant: LlmHistoryMessage[] = [...history, {
-                role: 'assistant', 
-                content: finalAssistantContent || '', 
+                role: 'assistant',
+                content: finalAssistantContent || '',
                 ...(finalToolCallsList.length > 0 ? { tool_calls: finalToolCallsList.map(tc => ({
                   id: tc.id,
                   type: 'function',
@@ -224,7 +236,9 @@ export default function App() {
 
                     const args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
                     const output = await executeTool(tc.function!.name!, args);
-                    
+                    const toolDef = toolDefinitions.find(t => t.function?.name === tc.function?.name);
+                    const toolMode = toolDef?.mode ?? 'ro';
+
                     currentMessages[tcIndexInMsg] = {
                       ...currentMessages[tcIndexInMsg],
                       toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t => 
@@ -232,12 +246,43 @@ export default function App() {
                       )
                     };
                     
-                    // FIXED: Correct tool message format
-                    toolResultsHistory.push({ 
-                      role: 'tool', 
-                      tool_call_id: tc.id, 
-                      content: typeof output === 'string' ? output : JSON.stringify(output) 
-                    });
+                    if (toolMode === 'rw' && !yoloMode) {
+                      const decision = await new Promise<{ approved: boolean; reason?: string }>((resolve) => {
+                        confirmationResolverRef.current = resolve;
+                        setPendingConfirmation({ toolCall: tc, output });
+                      });
+                      confirmationResolverRef.current = null;
+                      setPendingConfirmation(null);
+
+                      if (decision.approved) {
+                        const resultContent = output?.type === 'update'
+                          ? `The file ${output.filePath} has been updated successfully.`
+                          : `File created successfully at: ${output.filePath}`;
+                        toolResultsHistory.push({
+                          role: 'tool',
+                          tool_call_id: tc.id,
+                          content: resultContent,
+                        });
+                      } else {
+                        currentMessages[tcIndexInMsg] = {
+                          ...currentMessages[tcIndexInMsg],
+                          toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
+                            t.index === tc.index ? { ...t, result: { status: 'error', error: decision.reason || 'User rejected operation' } } : t
+                          ),
+                        };
+                        toolResultsHistory.push({
+                          role: 'tool',
+                          tool_call_id: tc.id,
+                          content: `Error: User rejected the operation. Reason: ${decision.reason || 'No reason provided'}`,
+                        });
+                      }
+                    } else {
+                      toolResultsHistory.push({
+                        role: 'tool',
+                        tool_call_id: tc.id,
+                        content: typeof output === 'string' ? output : JSON.stringify(output),
+                      });
+                    }
                   } catch (error: any) {
                     currentMessages[tcIndexInMsg] = {
                       ...currentMessages[tcIndexInMsg],
@@ -281,7 +326,7 @@ export default function App() {
               };
               const erroredMessages = [...currentMessages, errorAssistantMsg];
               setMessages(erroredMessages);
-              const erroredHistory = [...history, { role: 'assistant', content: errorAssistantMsg.content }];
+              const erroredHistory: LlmHistoryMessage[] = [...history, { role: 'assistant', content: errorAssistantMsg.content }];
               setLlmHistory(erroredHistory);
               await persistChatData(chatIdSnapshot, erroredMessages, erroredHistory, contextTokensUsedRef.current);
             },
@@ -308,6 +353,18 @@ export default function App() {
       setIsTyping, setLlmHistory, setMessages
     ],
   );
+
+  const handleApproveConfirmation = useCallback(() => {
+    if (!confirmationResolverRef.current) return;
+    confirmationResolverRef.current({ approved: true });
+    confirmationResolverRef.current = null;
+  }, []);
+
+  const handleRejectConfirmation = useCallback((reason: string) => {
+    if (!confirmationResolverRef.current) return;
+    confirmationResolverRef.current({ approved: false, reason });
+    confirmationResolverRef.current = null;
+  }, []);
 
   const handleNewChat = useCallback(async () => {
     cancelPendingRequest();
@@ -352,6 +409,15 @@ export default function App() {
 
         <MessageList messages={messages} isTyping={isTyping} />
 
+        {pendingConfirmation && (
+          <PendingConfirmationCard
+            toolCall={pendingConfirmation.toolCall}
+            output={pendingConfirmation.output}
+            onApprove={handleApproveConfirmation}
+            onReject={handleRejectConfirmation}
+          />
+        )}
+
         <InputArea
           mode={mode}
           onModeChange={setMode}
@@ -360,6 +426,9 @@ export default function App() {
           isAgentRunning={isAgentRunning}
           onToggleAgent={() => setIsAgentRunning(!isAgentRunning)}
           contextTokensUsed={contextTokensUsed}
+          yoloMode={yoloMode}
+          onYoloModeChange={setYoloMode}
+          disabled={Boolean(pendingConfirmation)}
         />
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

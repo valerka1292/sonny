@@ -9,6 +9,8 @@ const { getSystemPrompt } = require('./prompts.cjs');
 // Initialize tools
 require('./tools/system/GrepTool.cjs');
 require('./tools/system/GlobTool.cjs');
+require('./tools/system/ReadTool.cjs');
+require('./tools/system/WriteTool.cjs');
 
 const isDev = process.env.NODE_ENV === 'development';
 const sonnyDir = path.join(os.homedir(), '.sonny');
