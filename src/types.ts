@@ -16,6 +16,10 @@ export interface ToolCall {
   result?: ToolCallResult;
 }
 
+export interface ToolRendererProps {
+  toolCall: ToolCall;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';

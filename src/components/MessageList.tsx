@@ -7,6 +7,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Message, ToolCall } from '../types';
 import { ReasoningBlock } from './ReasoningBlock';
 import { ToolCallCard } from './ToolCallCard';
+import { getToolRenderer } from './toolRenderers/registry';
 
 interface MessageListProps {
   messages: Message[];
@@ -94,9 +95,12 @@ export default function MessageList({ messages, isTyping }: MessageListProps) {
     );
   }
 
-  const renderToolCall = (tc: ToolCall) => (
-    <ToolCallCard key={tc.index} toolCall={tc} />
-  );
+  const renderToolCall = (tc: ToolCall) => {
+    const Renderer = getToolRenderer(tc.function?.name);
+    if (Renderer) return <Renderer key={tc.index} toolCall={tc} />;
+
+    return <ToolCallCard key={tc.index} toolCall={tc} />;
+  };
 
   return (
     <div className="flex-1 overflow-y-auto">
