@@ -78,22 +78,6 @@ const chatSessionSchema = z.object({
   updatedAt: z.number().int(),
 });
 
-function withTimeout(promise, timeoutMs, label) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
 function validateChatId(chatId) {
   if (typeof chatId !== 'string' || !SAFE_ID_PATTERN.test(chatId)) {
     throw new Error(`Invalid chatId: ${String(chatId)}`);
@@ -205,7 +189,7 @@ function registerIpc() {
     const context = { cwd: sandboxPath, signal: controller.signal, timeoutMs: TOOL_EXEC_TIMEOUT_MS };
     const parsed = tool.inputSchema.parse(input);
     try {
-      return await withTimeout(tool.execute(parsed, context), TOOL_EXEC_TIMEOUT_MS, `Tool ${name}`);
+      return await tool.execute(parsed, context);
     } finally {
       clearTimeout(timeout);
     }

@@ -4,7 +4,7 @@ import MessageList from './components/MessageList';
 import InputArea from './components/InputArea';
 import SettingsModal from './components/SettingsModal';
 import Titlebar from './components/Titlebar';
-import { AgentMode, Message, ToolCall } from './types';
+import { AgentMode, LlmHistoryMessage, Message, ToolCall } from './types';
 import { generateChatName, getToolDefinitions, streamChatCompletion } from './services/llmService';
 import { useProviders } from './hooks/useProviders';
 import { useChats } from './hooks/useChats';
@@ -83,33 +83,34 @@ export default function App() {
       const requestController = new AbortController();
       pendingRequestControllerRef.current = requestController;
 
-      let chatId = activeChatIdRef.current;
-      if (!chatId) {
-        console.log('[App] No active chat, creating new one');
-        chatId = await createChat();
-      }
+      try {
+        let chatId = activeChatIdRef.current;
+        if (!chatId) {
+          console.log('[App] No active chat, creating new one');
+          chatId = await createChat();
+        }
 
-      const chatIdSnapshot = chatId;
-      const existingMessages = [...messagesRef.current];
-      const isFirstMessage = existingMessages.length === 0;
+        const chatIdSnapshot = chatId;
+        const existingMessages = [...messagesRef.current];
+        const isFirstMessage = existingMessages.length === 0;
 
-      const userMsg: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content,
-        timestamp: new Date(),
-      };
+        const userMsg: Message = {
+          id: Date.now().toString(),
+          role: 'user',
+          content,
+          timestamp: new Date(),
+        };
 
-      console.log(`[App] Adding user message to chat ${chatIdSnapshot}`);
-      let currentMessages = [...existingMessages, userMsg];
-      setMessages(currentMessages);
+        console.log(`[App] Adding user message to chat ${chatIdSnapshot}`);
+        let currentMessages = [...existingMessages, userMsg];
+        setMessages(currentMessages);
 
-      const systemPromptText = await getSystemPrompt();
-      let currentLlmHistory = [...llmHistoryRef.current, { role: 'user', content }];
-      
-      let toolIteration = 0;
+        const systemPromptText = await getSystemPrompt();
+        const currentLlmHistory: LlmHistoryMessage[] = [...llmHistoryRef.current, { role: 'user', content }];
 
-      const runIteration = async (history: any[]) => {
+        let toolIteration = 0;
+
+        const runIteration = async (history: LlmHistoryMessage[]) => {
         const shouldProcessUpdate = () =>
           isMountedRef.current &&
           !requestController.signal.aborted &&
@@ -141,7 +142,7 @@ export default function App() {
         const finalToolCalls = new Map<number, ToolCall>();
         const toolDefinitions = await getToolDefinitions();
 
-        const historyForLLM = [{ role: 'system', content: systemPromptText }, ...history];
+        const historyForLLM: LlmHistoryMessage[] = [{ role: 'system', content: systemPromptText }, ...history];
 
         console.log(`[App] Starting iteration ${toolIteration}...`);
         await streamChatCompletion(
@@ -190,7 +191,7 @@ export default function App() {
               setMessages(currentMessages);
               
               // Correct LLM History update
-              const historyWithAssistant: any[] = [...history, { 
+              const historyWithAssistant: LlmHistoryMessage[] = [...history, {
                 role: 'assistant', 
                 content: finalAssistantContent || '', 
                 ...(finalToolCallsList.length > 0 ? { tool_calls: finalToolCallsList.map(tc => ({
@@ -288,9 +289,17 @@ export default function App() {
           requestController.signal,
           toolDefinitions
         );
-      };
+        };
 
-      await runIteration(currentLlmHistory);
+        await runIteration(currentLlmHistory);
+      } catch (error) {
+        console.error('[App] Failed to process send flow', error);
+        setIsTyping(false);
+      } finally {
+        if (pendingRequestControllerRef.current === requestController) {
+          pendingRequestControllerRef.current = null;
+        }
+      }
     },
     [
       activeChatIdRef, activeProvider, cancelPendingRequest, createChat, 
