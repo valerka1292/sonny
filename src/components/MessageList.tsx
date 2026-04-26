@@ -4,14 +4,25 @@ import { Cpu, Check, Copy, Wrench } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Message, ToolCall } from '../types';
+import { DiffHunk, Message, ToolCall } from '../types';
 import { ReasoningBlock } from './ReasoningBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { getToolRenderer } from './toolRenderers/registry';
+import PendingConfirmationCard from './PendingConfirmationCard';
 
 interface MessageListProps {
   messages: Message[];
   isTyping?: boolean;
+  pendingConfirmation?: {
+    toolCall: ToolCall;
+    output: {
+      type?: 'create' | 'update';
+      filePath?: string;
+      structuredPatch?: DiffHunk[];
+    };
+  } | null;
+  onApprove?: () => void;
+  onReject?: (reason: string) => void;
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
@@ -52,7 +63,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
   );
 }
 
-export default function MessageList({ messages, isTyping }: MessageListProps) {
+export default function MessageList({ messages, isTyping, pendingConfirmation, onApprove, onReject }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const MarkdownComponents = React.useMemo(() => ({
@@ -139,6 +150,15 @@ export default function MessageList({ messages, isTyping }: MessageListProps) {
             </motion.div>
           );
         })}
+
+        {pendingConfirmation && onApprove && onReject && (
+          <PendingConfirmationCard
+            toolCall={pendingConfirmation.toolCall}
+            output={pendingConfirmation.output}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        )}
 
         {isTyping && (
           <motion.div
