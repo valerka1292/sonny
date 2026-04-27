@@ -247,9 +247,10 @@ function registerIpc() {
   });
 
   // Prompts
-  ipcMain.handle('get-system-prompt', async (_, chatId) => {
+  ipcMain.handle('get-system-prompt', async (_, chatId, yoloMode) => {
     const safeChatId = typeof chatId === 'string' ? chatId : null;
-    return getSystemPrompt(sandboxPath, promptsDir, safeChatId);
+    const safeYolo = yoloMode === true;
+    return getSystemPrompt(sandboxPath, promptsDir, safeChatId, safeYolo);
   });
 
   // Todos

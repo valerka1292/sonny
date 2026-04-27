@@ -4,7 +4,10 @@ import { rememberFileContent } from './streaming/oldContentCache';
 import { StreamingPreviewOrchestrator } from './streaming/streamingPreviewOrchestrator';
 import type { LlmHistoryMessage, Message, Provider, ToolCall, ToolCallStreamingPreview } from '../types';
 
-export const MAX_TOOL_ITERATIONS = 10;
+// No hard iteration cap. The agent ends its loop by emitting an assistant
+// message without tool calls; the user can interrupt at any time via the
+// renderer-level abort controller (Stop button). See `# Agent Loop` in
+// `electron/prompts.cjs` for the model-facing description.
 
 export function applyToolCallDelta(messages: Message[], assistantId: string, toolCall: ToolCall): Message[] {
   return messages.map((m) => {
@@ -96,17 +99,20 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
   const shouldProcessUpdate = () =>
     isMountedRef.current && !requestController.signal.aborted && activeChatIdRef.current === chatId;
 
-  const systemPromptText = await getSystemPrompt(chatId);
   const toolDefinitions = await getToolDefinitions();
 
   let toolIteration = 0;
   let currentMessages = messages;
 
   const runIteration = async (workingHistory: LlmHistoryMessage[]) => {
-    if (toolIteration++ >= MAX_TOOL_ITERATIONS) {
-      if (shouldProcessUpdate()) onTyping(false);
-      return;
-    }
+    toolIteration += 1;
+
+    // Rebuild the system prompt at the start of every iteration so mid-run
+    // YOLO toggles take effect on the next turn (the YOLO Mode block in the
+    // dynamic part appears or disappears based on the live setting). The
+    // current Todo list is also re-read here so prompt todos stay in sync
+    // with whatever TodoWrite did on the previous turn.
+    const systemPromptText = await getSystemPrompt(chatId, getYoloMode());
 
     const assistantId = (Date.now() + toolIteration).toString();
     const assistantMsg: Message = {

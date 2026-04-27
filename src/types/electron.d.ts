@@ -22,7 +22,7 @@ declare global {
         set: (chatId: string, items: TodoItem[]) => Promise<TodoItem[]>;
         clear: (chatId: string) => Promise<TodoItem[]>;
       };
-      getSystemPrompt?: (chatId?: string | null) => Promise<string>;
+      getSystemPrompt?: (chatId?: string | null, yoloMode?: boolean) => Promise<string>;
       history?: {
         list: () => Promise<ChatSession[]>;
         get: (chatId: string) => Promise<ChatData | null>;

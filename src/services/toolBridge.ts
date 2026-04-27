@@ -21,7 +21,10 @@ export async function executeTool(
   return electron.tools.execute(name, input, meta);
 }
 
-export async function getSystemPrompt(chatId?: string | null): Promise<string> {
+export async function getSystemPrompt(
+  chatId?: string | null,
+  yoloMode?: boolean,
+): Promise<string> {
   if (!electron?.getSystemPrompt) return 'I am Sonny.';
-  return electron.getSystemPrompt(chatId ?? null);
+  return electron.getSystemPrompt(chatId ?? null, yoloMode === true);
 }

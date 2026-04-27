@@ -25,5 +25,5 @@ contextBridge.exposeInMainWorld('electron', {
     set: (chatId, items) => ipcRenderer.invoke('todos:set', chatId, items),
     clear: (chatId) => ipcRenderer.invoke('todos:clear', chatId),
   },
-  getSystemPrompt: (chatId) => ipcRenderer.invoke('get-system-prompt', chatId),
+  getSystemPrompt: (chatId, yoloMode) => ipcRenderer.invoke('get-system-prompt', chatId, yoloMode),
 });
