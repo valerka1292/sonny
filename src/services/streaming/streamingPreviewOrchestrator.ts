@@ -1,21 +1,50 @@
 import type { DiffFile, ToolCallStreamingPreview } from '../../types';
 import { getCachedFileContent } from './oldContentCache';
 import { computeDiffHunks } from './incrementalDiff';
+import { applyEditPreview } from './editPreview';
 import { parsePartialJson } from './partialJson';
 
-export interface StreamableDiffSpec {
-  pathField: string;
-  contentField: string;
-}
+export type StreamableDiffSpec =
+  | {
+      kind: 'write';
+      pathField: string;
+      contentField: string;
+    }
+  | {
+      kind: 'edit';
+      pathField: string;
+      oldStringField: string;
+      newStringField: string;
+      replaceAllField?: string;
+    };
 
 /**
- * Per-tool-name registry of which fields to extract from a partial JSON
+ * Per-tool-name registry of how to extract fields from a partial JSON
  * tool-call argument blob to render a live diff preview.
+ *
+ * - `write`: full-file replacement (Write/WriteFile). Diffs cached old content
+ *   against the streamed `content` field.
+ * - `edit`: anchored substring replacement (Edit). Applies streamed
+ *   `old_string` → `new_string` to the cached old content (single or all
+ *   occurrences depending on `replace_all`) before diffing.
  */
 export const STREAMABLE_DIFF_TOOLS: Record<string, StreamableDiffSpec> = {
-  Write: { pathField: 'file_path', contentField: 'content' },
-  WriteFile: { pathField: 'file_path', contentField: 'content' },
-  EditFile: { pathField: 'file_path', contentField: 'new_string' },
+  Write: { kind: 'write', pathField: 'file_path', contentField: 'content' },
+  WriteFile: { kind: 'write', pathField: 'file_path', contentField: 'content' },
+  Edit: {
+    kind: 'edit',
+    pathField: 'file_path',
+    oldStringField: 'old_string',
+    newStringField: 'new_string',
+    replaceAllField: 'replace_all',
+  },
+  EditFile: {
+    kind: 'edit',
+    pathField: 'file_path',
+    oldStringField: 'old_string',
+    newStringField: 'new_string',
+    replaceAllField: 'replace_all',
+  },
 };
 
 interface PendingEntry {
@@ -128,12 +157,37 @@ export class StreamingPreviewOrchestrator {
     if (!spec || !parsedArgs) return undefined;
 
     const filePath = parsedArgs[spec.pathField];
-    const newContent = parsedArgs[spec.contentField];
-    if (typeof filePath !== 'string' || typeof newContent !== 'string') return undefined;
+    if (typeof filePath !== 'string' || filePath.length === 0) return undefined;
 
-    const oldContent = getCachedFileContent(filePath) ?? '';
+    if (spec.kind === 'write') {
+      const newContent = parsedArgs[spec.contentField];
+      if (typeof newContent !== 'string') return undefined;
+      const oldContent = getCachedFileContent(filePath) ?? '';
+      try {
+        const hunks = computeDiffHunks(oldContent, newContent);
+        return { filePath, hunks };
+      } catch {
+        return { filePath, hunks: [] };
+      }
+    }
+
+    // kind === 'edit'
+    const oldString = parsedArgs[spec.oldStringField];
+    const newString = parsedArgs[spec.newStringField];
+    if (typeof oldString !== 'string' || typeof newString !== 'string') return undefined;
+    // Wait until we have a complete-enough old_string to anchor; partial JSON
+    // can hand us a 1-char prefix that would match in many places.
+    if (oldString.length === 0) return undefined;
+
+    const oldContent = getCachedFileContent(filePath);
+    if (oldContent === undefined) return undefined;
+
+    const replaceAll = spec.replaceAllField !== undefined && parsedArgs[spec.replaceAllField] === true;
+    const projected = applyEditPreview(oldContent, oldString, newString, replaceAll);
+    if (projected === undefined) return undefined;
+
     try {
-      const hunks = computeDiffHunks(oldContent, newContent);
+      const hunks = computeDiffHunks(oldContent, projected);
       return { filePath, hunks };
     } catch {
       return { filePath, hunks: [] };
