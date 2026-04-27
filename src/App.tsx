@@ -30,6 +30,7 @@ export default function App() {
     createChat,
     renameChat,
     deleteChat,
+    togglePin,
     persistChatData,
     scheduleAutoSave,
   } = useChats();
@@ -190,6 +191,10 @@ export default function App() {
     await deleteChat(chatId);
   }, [cancelPendingRequest, deleteChat]);
 
+  const handleTogglePin = useCallback(async (chatId: string, pinned: boolean) => {
+    await togglePin(chatId, pinned);
+  }, [togglePin]);
+
 
   const handleRenameChat = useCallback(async () => {
     if (!activeChatId) return;
@@ -210,6 +215,7 @@ export default function App() {
         onNewChat={handleNewChat}
         onSelectChat={handleSwitchChat}
         onDeleteChat={handleDeleteChat}
+        onTogglePin={handleTogglePin}
         onSettingsOpen={() => setIsSettingsOpen(true)}
       />
 

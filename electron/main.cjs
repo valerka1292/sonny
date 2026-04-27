@@ -75,12 +75,25 @@ const chatDataSchema = z.object({
   messages: z.array(storedMessageSchema),
   llmHistory: z.array(llmHistorySchema),
   contextTokensUsed: z.number().nonnegative(),
+  pinned: z.boolean().optional().default(false),
 });
 const chatSessionSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   updatedAt: z.number().int(),
+  pinned: z.boolean().optional().default(false),
 });
+
+// Sidebar order: pinned first (newest first), then unpinned (newest first).
+// Stable across reads/writes so the renderer never has to re-sort.
+function sortChatSessions(list) {
+  return [...list].sort((a, b) => {
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    return b.updatedAt - a.updatedAt;
+  });
+}
 
 function validateChatId(chatId) {
   if (typeof chatId !== 'string' || !SAFE_ID_PATTERN.test(chatId)) {
@@ -175,7 +188,15 @@ async function listChats() {
   await ensureDir(historyDir);
   const rawIndex = await pathExists(historyIndexPath) ? await fsPromises.readFile(historyIndexPath, 'utf-8') : '[]';
   try {
-    return JSON.parse(rawIndex).sort((a, b) => b.updatedAt - a.updatedAt);
+    const parsed = JSON.parse(rawIndex);
+    // Backfill pinned for entries written by older versions of the app.
+    const normalized = parsed.map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      updatedAt: entry.updatedAt,
+      pinned: entry.pinned === true,
+    }));
+    return sortChatSessions(normalized);
   } catch {
     return [];
   }
@@ -235,20 +256,47 @@ function registerIpc() {
     const validatedChat = chatDataSchema.parse(data);
     await writeChat(chatId, validatedChat);
     const list = await listChats();
-    const updated = chatSessionSchema.array().parse([
+    const previous = list.find((c) => c.id === chatId);
+    const merged = chatSessionSchema.array().parse([
       ...list.filter((c) => c.id !== chatId),
-      { id: chatId, title: validatedChat.title, updatedAt: Date.now() },
+      {
+        id: chatId,
+        title: validatedChat.title,
+        updatedAt: validatedChat.updatedAt,
+        // Index is the source of truth for `pinned`; preserve whatever was
+        // there. The chat data carries it only as a backup mirror and must
+        // never overwrite the index here. The dedicated `history:setPinned`
+        // IPC is the only path that flips the flag.
+        pinned: previous?.pinned ?? validatedChat.pinned ?? false,
+      },
     ]);
-    await atomicWriteFile(historyIndexPath, JSON.stringify(updated));
-    return updated;
+    const sorted = sortChatSessions(merged);
+    await atomicWriteFile(historyIndexPath, JSON.stringify(sorted));
+    return sorted;
+  });
+  ipcMain.handle('history:setPinned', async (_, chatId, pinned) => {
+    validateChatId(chatId);
+    const next = Boolean(pinned);
+    const list = await listChats();
+    const updated = list.map((c) => (c.id === chatId ? { ...c, pinned: next } : c));
+    const sorted = sortChatSessions(updated);
+    await atomicWriteFile(historyIndexPath, JSON.stringify(sorted));
+    // Mirror the flag onto the chat file so the data + index don't drift.
+    const chat = await readChat(chatId);
+    if (chat) {
+      const nextChat = { ...chat, pinned: next };
+      await writeChat(chatId, nextChat);
+    }
+    return sorted;
   });
   ipcMain.handle('history:delete', async (_, chatId) => {
     validateChatId(chatId);
     const filePath = path.join(historyDir, `${chatId}.json`);
     if (await pathExists(filePath)) await fsPromises.unlink(filePath);
     const list = (await listChats()).filter(c => c.id !== chatId);
-    await atomicWriteFile(historyIndexPath, JSON.stringify(list));
-    return list;
+    const sorted = sortChatSessions(list);
+    await atomicWriteFile(historyIndexPath, JSON.stringify(sorted));
+    return sorted;
   });
 
   // Window Controls

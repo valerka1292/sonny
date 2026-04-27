@@ -48,6 +48,7 @@ export interface ChatSession {
   id: string;
   title: string;
   updatedAt: number;
+  pinned?: boolean;
 }
 
 export interface ChatData {
@@ -58,6 +59,7 @@ export interface ChatData {
   messages: StoredMessage[];
   llmHistory: LlmHistoryMessage[];
   contextTokensUsed: number;
+  pinned?: boolean;
 }
 
 export interface LlmHistoryMessage {

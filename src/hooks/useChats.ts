@@ -303,6 +303,19 @@ export function useChats() {
     [chatStorage, loadChat, logStorageError, setMessages, setLlmHistory, setContextTokensUsed],
   );
 
+  const togglePin = useCallback(
+    async (chatId: string, pinned: boolean) => {
+      if (!chatStorage) return;
+      try {
+        const updatedList = await chatStorage.setPinned(chatId, pinned);
+        setChats(updatedList);
+      } catch (error) {
+        logStorageError(`toggle pin ${chatId}`, error);
+      }
+    },
+    [chatStorage, logStorageError],
+  );
+
   const persistChatData = useCallback(
     async (
       chatId: string,
@@ -364,6 +377,7 @@ export function useChats() {
     createChat,
     renameChat,
     deleteChat,
+    togglePin,
     persistChatData,
     scheduleAutoSave,
   };
