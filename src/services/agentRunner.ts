@@ -1,6 +1,8 @@
 import { generateChatName, getToolDefinitions, streamChatCompletion } from './llmService';
 import { executeTool, getSystemPrompt } from './toolBridge';
-import type { LlmHistoryMessage, Message, Provider, ToolCall } from '../types';
+import { rememberFileContent } from './streaming/oldContentCache';
+import { StreamingPreviewOrchestrator } from './streaming/streamingPreviewOrchestrator';
+import type { LlmHistoryMessage, Message, Provider, ToolCall, ToolCallStreamingPreview } from '../types';
 
 export const MAX_TOOL_ITERATIONS = 10;
 
@@ -13,6 +15,32 @@ export function applyToolCallDelta(messages: Message[], assistantId: string, too
     else toolCalls.push(toolCall);
     return { ...m, toolCalls };
   });
+}
+
+export function applyStreamingPreview(
+  messages: Message[],
+  assistantId: string,
+  toolIndex: number,
+  preview: ToolCallStreamingPreview,
+): Message[] {
+  return messages.map((m) => {
+    if (m.id !== assistantId) return m;
+    const toolCalls = (m.toolCalls ?? []).map((tc) =>
+      tc.index === toolIndex ? { ...tc, streamingPreview: preview } : tc,
+    );
+    return { ...m, toolCalls };
+  });
+}
+
+function isReadToolName(name: string | undefined): boolean {
+  return name === 'Read' || name === 'ReadFile';
+}
+
+function extractReadResult(output: unknown): { filePath: string; content: string } | null {
+  if (!output || typeof output !== 'object') return null;
+  const obj = output as { filePath?: unknown; content?: unknown };
+  if (typeof obj.filePath !== 'string' || typeof obj.content !== 'string') return null;
+  return { filePath: obj.filePath, content: obj.content };
 }
 
 interface RunnerParams {
@@ -96,6 +124,12 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
     const finalToolCalls = new Map<number, ToolCall>();
     const historyForLLM: LlmHistoryMessage[] = [{ role: 'system', content: systemPromptText }, ...workingHistory];
 
+    const previewOrchestrator = new StreamingPreviewOrchestrator((toolIndex, preview) => {
+      if (!shouldProcessUpdate()) return;
+      workingMessages = applyStreamingPreview(workingMessages, assistantId, toolIndex, preview);
+      onMessages(workingMessages);
+    });
+
     await streamChatCompletion(
       provider,
       historyForLLM,
@@ -123,8 +157,13 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
           workingMessages = applyToolCallDelta(workingMessages, assistantId, toolCall);
           onMessages(workingMessages);
           onAutosave();
+
+          const merged = finalToolCalls.get(toolCall.index);
+          previewOrchestrator.ingestDelta(toolCall.index, merged?.function?.name, merged?.function?.arguments);
         },
         onDone: async (usage) => {
+          previewOrchestrator.flushSync();
+          previewOrchestrator.dispose();
           if (!shouldProcessUpdate()) return;
 
           const finalToolCallsList = Array.from(finalToolCalls.values());
@@ -197,6 +236,11 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               const toolDef = toolDefinitions.find((t) => t.function?.name === tc.function?.name);
               const toolMode = toolDef?.mode ?? 'ro';
 
+              if (isReadToolName(tc.function?.name)) {
+                const readData = extractReadResult(output);
+                if (readData) rememberFileContent(readData.filePath, readData.content);
+              }
+
               currentMessages[tcIndexInMsg] = {
                 ...currentMessages[tcIndexInMsg],
                 toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map((t) =>
@@ -212,6 +256,10 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
                     content: output.content,
                     apply: true,
                   });
+
+                  if (committedOutput?.filePath && typeof committedOutput.content === 'string') {
+                    rememberFileContent(committedOutput.filePath, committedOutput.content);
+                  }
 
                   currentMessages[tcIndexInMsg] = {
                     ...currentMessages[tcIndexInMsg],
@@ -250,6 +298,10 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
                       })
                     : output;
 
+                if (toolMode === 'rw' && finalOutput?.filePath && typeof finalOutput.content === 'string') {
+                  rememberFileContent(finalOutput.filePath, finalOutput.content);
+                }
+
                 currentMessages[tcIndexInMsg] = {
                   ...currentMessages[tcIndexInMsg],
                   toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map((t) =>
@@ -281,6 +333,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
           await runIteration(toolResultsHistory);
         },
         onError: async (error: any) => {
+          previewOrchestrator.dispose();
           if (!shouldProcessUpdate()) return;
           onTyping(false);
           const errorAssistantMsg = {

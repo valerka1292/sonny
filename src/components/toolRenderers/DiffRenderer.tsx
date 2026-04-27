@@ -3,38 +3,40 @@ import type { DiffFile, ToolRendererProps } from '../../types';
 
 export default function DiffRenderer({ toolCall }: ToolRendererProps) {
   const output = toolCall.result?.output as { diff?: DiffFile } | undefined;
-  const diff = output?.diff;
+  const finalDiff = output?.diff;
+  const previewDiff = toolCall.streamingPreview?.diff;
   const status = toolCall.result?.status;
-
-  if (status === 'running') {
-    return (
-      <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
-        <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
-          {toolCall.function?.name}: {toolCall.function?.arguments ? 'Writing file' : 'Running'}
-        </div>
-        <div className="px-3 py-3 text-xs text-text-secondary flex items-center gap-2">
-          <Loader2 size={12} className="animate-spin" />
-          Generating diff...
-        </div>
-      </div>
-    );
-  }
+  const diff = finalDiff ?? previewDiff;
+  const isStreaming = !finalDiff && Boolean(previewDiff);
 
   if (!diff) {
+    const argsLen = toolCall.function?.arguments?.length ?? 0;
     return (
       <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
         <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
           {toolCall.function?.name || 'Write'}
+          {status === 'running' ? ': Applying' : ''}
         </div>
-        <div className="px-3 py-3 text-xs text-text-secondary">Generating diff...</div>
+        <div className="px-3 py-3 text-xs text-text-secondary flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" />
+          {argsLen > 0 ? `Streaming arguments (${argsLen} chars)…` : 'Waiting for tool call…'}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
-      <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
-        {toolCall.function?.name}: {diff.filePath}
+      <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border flex items-center gap-2">
+        <span>
+          {toolCall.function?.name}: {diff.filePath}
+        </span>
+        {isStreaming && (
+          <span className="ml-auto flex items-center gap-1 text-[10px] uppercase tracking-wider text-accent">
+            <Loader2 size={10} className="animate-spin" />
+            streaming
+          </span>
+        )}
       </div>
 
       <div className="overflow-x-auto text-[13px] font-mono leading-relaxed">
