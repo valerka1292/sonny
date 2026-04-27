@@ -15,8 +15,15 @@ require('./tools/system/WriteTool.cjs');
 require('./tools/system/EditTool.cjs');
 require('./tools/system/TodoWriteTool.cjs');
 require('./tools/system/AskUserQuestionTool.cjs');
+require('./tools/system/BranchTool.cjs');
 
 const { readTodos, writeTodos, clearTodos } = require('./tools/system/todoStore.cjs');
+const {
+  branchPathFor,
+  ensureBranchLayout,
+  listBranchProjects,
+  readCurrentBranch,
+} = require('./tools/system/branchStore.cjs');
 
 const isDev = process.env.NODE_ENV === 'development';
 const sonnyDir = path.join(os.homedir(), '.sonny');
@@ -213,11 +220,15 @@ function registerIpc() {
   ipcMain.handle('tool:execute', async (event, { name, input, meta }) => {
     const tool = registry.get(name);
     if (!tool) throw new Error(`Tool ${name} not found`);
-    await ensureDir(sandboxPath);
+    await ensureBranchLayout(sandboxPath);
+    const currentBranch = await readCurrentBranch();
+    const branchPath = branchPathFor(sandboxPath, currentBranch);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(new Error(`Tool ${name} timed out`)), TOOL_EXEC_TIMEOUT_MS);
     const context = {
-      cwd: sandboxPath,
+      cwd: branchPath,
+      sandboxRoot: sandboxPath,
+      currentBranch,
       signal: controller.signal,
       timeoutMs: TOOL_EXEC_TIMEOUT_MS,
       // chatId is supplied by the renderer so session-scoped tools (TodoWrite)
@@ -251,7 +262,11 @@ function registerIpc() {
   ipcMain.handle('get-system-prompt', async (_, chatId, yoloMode) => {
     const safeChatId = typeof chatId === 'string' ? chatId : null;
     const safeYolo = yoloMode === true;
-    return getSystemPrompt(sandboxPath, promptsDir, safeChatId, safeYolo);
+    await ensureBranchLayout(sandboxPath);
+    const currentBranch = await readCurrentBranch();
+    const branchPath = branchPathFor(sandboxPath, currentBranch);
+    const branchProjects = await listBranchProjects(sandboxPath, currentBranch);
+    return getSystemPrompt(branchPath, promptsDir, safeChatId, safeYolo, currentBranch, sandboxPath, branchProjects);
   });
 
   // Todos
@@ -348,7 +363,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await ensureDir(sandboxPath);
+  await ensureBranchLayout(sandboxPath);
   await copyDefaultPrompts();
   registerIpc();
   createWindow();
