@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const { z } = require('zod');
 const { registry } = require('./tools/registry.cjs');
+const { formatZodError } = require('./tools/zodError.cjs');
 const { getSystemPrompt } = require('./prompts.cjs');
 
 // Initialize tools
@@ -229,7 +230,7 @@ function registerIpc() {
     const parseResult = tool.inputSchema.safeParse(input);
     if (!parseResult.success) {
       return {
-        error: `Schema validation failed for tool "${name}": ${parseResult.error.message}. Please fix your arguments and retry.`,
+        error: formatZodError(name, input, tool.inputSchema, parseResult.error),
       };
     }
     const parsed = parseResult.data;
