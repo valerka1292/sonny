@@ -49,7 +49,12 @@ interface RunnerParams {
   chatId: string;
   requestController: AbortController;
   isFirstMessage: boolean;
-  yoloMode: boolean;
+  /**
+   * Read the latest YOLO setting from the renderer. The closure must call this
+   * each time it's about to ask for confirmation so toggling YOLO ON in the
+   * middle of a long agent run takes effect on subsequent rw tool calls.
+   */
+  getYoloMode: () => boolean;
   history: LlmHistoryMessage[];
   messages: Message[];
   activeChatIdRef: { current: string | null };
@@ -72,7 +77,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
     chatId,
     requestController,
     isFirstMessage,
-    yoloMode,
+    getYoloMode,
     history,
     messages,
     activeChatIdRef,
@@ -278,7 +283,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               if (!shouldProcessUpdate()) return;
               onMessages([...currentMessages]);
 
-              if (toolMode === 'rw' && !yoloMode) {
+              if (toolMode === 'rw' && !getYoloMode()) {
                 const decision = await askConfirmation(tc, output);
                 if (decision.approved) {
                   // Re-issue the tool with the model's original args plus

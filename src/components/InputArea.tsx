@@ -6,6 +6,7 @@ import { AGENT_MODES } from '../constants';
 import { cn } from '../lib/utils';
 import { ContextIndicator } from './ContextIndicator';
 import TodoModal from './TodoModal';
+import Toggle from './Toggle';
 
 interface InputAreaProps {
   mode: AgentMode;
@@ -131,15 +132,12 @@ export default function InputArea({
                 View tasks
               </button>
 
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={yoloMode}
-                  onChange={(event) => onYoloModeChange(event.target.checked)}
-                  className="h-3.5 w-3.5"
-                />
-                YOLO Mode
-              </label>
+              <Toggle
+                checked={yoloMode}
+                onChange={onYoloModeChange}
+                label="YOLO Mode"
+                ariaLabel="Toggle YOLO mode"
+              />
             </div>
           </div>
 

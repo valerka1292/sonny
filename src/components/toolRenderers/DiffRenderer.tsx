@@ -46,6 +46,43 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
   const verb = getVerb(toolName, finalSuccess);
 
   if (!diff) {
+    // Tool errored / was rejected before producing a diff — surface that
+    // explicitly so the card doesn't sit on an infinite "Streaming…" spinner.
+    if (isToolError || isUserRejected) {
+      return (
+        <div
+          className={`my-2 rounded-lg border ${isToolError ? 'border-red-900/60' : 'border-border'} bg-bg-2 overflow-hidden max-w-full`}
+        >
+          <div
+            className={`px-3 py-2 text-xs font-semibold ${isToolError ? 'text-red-400' : 'text-text-secondary/60'} bg-bg-3/30 border-b border-border flex items-center gap-2`}
+          >
+            <span>{verb}</span>
+            <X size={12} className={isToolError ? 'text-red-400' : 'text-text-secondary/60'} />
+          </div>
+          {error && (
+            <div className="px-3 py-2 text-xs text-red-400 whitespace-pre-wrap break-words">{error}</div>
+          )}
+        </div>
+      );
+    }
+
+    // Tool returned success but produced no diff (rare; defensive). Show a
+    // "Wrote/Edited" card without diff content rather than a stuck spinner.
+    if (status === 'success') {
+      const filePath =
+        (toolCall.streamingPreview?.parsedArgs?.file_path as string | undefined) ??
+        (output as DiffOutput | undefined)?.filePath ??
+        '';
+      return (
+        <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
+          <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border flex items-center gap-2">
+            <span>{verb}{filePath ? `: ${filePath}` : ''}</span>
+            {finalSuccess && <Check size={12} className="text-green-400" />}
+          </div>
+        </div>
+      );
+    }
+
     const argsLen = toolCall.function?.arguments?.length ?? 0;
     return (
       <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
@@ -55,7 +92,11 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
         </div>
         <div className="px-3 py-3 text-xs text-text-secondary flex items-center gap-2">
           <Loader2 size={12} className="animate-spin" />
-          {argsLen > 0 ? `Streaming arguments (${argsLen} chars)…` : 'Waiting for tool call…'}
+          {status === 'running'
+            ? 'Applying…'
+            : argsLen > 0
+              ? `Streaming arguments (${argsLen} chars)…`
+              : 'Waiting for tool call…'}
         </div>
       </div>
     );
