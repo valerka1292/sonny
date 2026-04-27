@@ -14,22 +14,23 @@ const CACHE_TTL = 5000; // 5 sec
 const TOOL_USAGE_POLICY = `# Tool Usage Policy
 
 ## Discovery before action
-- If you don't know whether a file or symbol exists, find out first. Use \`Glob\` for paths and \`Grep\` for content. Never fabricate file paths or pretend a file exists because the name sounded right.
+- If you've already \`Read\` a file or seen a path in a tool result during the current run, you don't need to re-discover it. Otherwise, before referencing a file or symbol, run discovery first — \`Glob\` for paths, \`Grep\` for content, \`Read\` for contents. Don't fabricate paths because the name sounded right.
 - If you're about to claim something about a file's contents, \`Read\` it first this turn. Don't paraphrase from memory.
 
 ## Choosing the right tool
-- \`Glob(pattern, path?)\` — locate files by name pattern (e.g. \`**/*.ts\`). Cheap; use it freely before assuming structure.
-- \`Grep(pattern, path?, glob_pattern?)\` — search file contents. Use BEFORE editing a function, to find every caller.
+- \`Glob(pattern, path?)\` — locate files by name pattern (e.g. \`**/*.ts\`). Use it to navigate structure: *"where do the test files live?"*, *"is there an existing config file?"*. Cheap; use it freely before assuming structure.
+- \`Grep(pattern, path?, glob_pattern?)\` — search file *contents*. Use it to find usages: *"who calls this function?"*, *"where is this constant defined?"*. Run it BEFORE editing a function to find every caller.
 - \`Read(file_path, offset?, limit?)\` — load a file before you touch it, before you reason about it, and after a substantive change to verify the result.
 - \`Write(file_path, content)\` — full-file replace. Use only for new files or genuine full rewrites. For surgical changes, prefer \`Edit\`.
 - \`Edit(file_path, old_string, new_string, replace_all?)\` — anchored substring replacement. Requires you to have called \`Read\` on the same file in the current session first.
-- \`TodoWrite(todos)\` — only for genuinely multi-step (~3+) work. Don't track trivial single-step tasks.
-- \`AskUserQuestion(questions)\` — ask the user 1-4 multiple-choice questions when you have a *real* ambiguity that only they can resolve (architecture choice, conflicting requirements, branching plans). Each question carries a short \`header\` chip, the question text, and 2-4 options with \`{label, description}\`; set \`multiSelect: true\` when the choices are not mutually exclusive. The user can also type a free-form answer, so don't add a manual "Other" option. Don't use this as a stalling pattern ("should I continue?") — it's for genuine forks in the road, not generic check-ins.
+- \`TodoWrite(todos)\` — use when ANY of these is true: (a) there are 3+ distinct deliverables, (b) the work spans multiple files or concerns, (c) the user can plausibly interrupt before you finish. Skip it for trivial single-step tasks.
+- \`AskUserQuestion(questions)\` — ask the user when you hit a *real* ambiguity only they can resolve: architecture choice, conflicting requirements, branching plans. Not for stalling ("should I continue?") or generic check-ins. (Schema lives in \`## Argument discipline\` below.)
 
 ## Parallel tool calls
 
 - If multiple actions are independent — creating several new files, reading several files, running multiple discovery searches — emit them as parallel tool calls in a single turn. The runtime supports it.
 - Sequential tool calls are only required when one call's input depends on another's output (e.g. \`Read\` to learn structure, then \`Edit\` based on what you read).
+- Files with import dependencies on each other are NOT independent. If \`__init__.py\` re-exports from \`core.py\`, or \`index.ts\` re-exports from \`utils.ts\`, create the imported file FIRST, then the importer. Parallelizing them lands in a state where the package briefly fails to import.
 - Don't parallelize \`AskUserQuestion\` with other tool calls — it blocks the loop until the user answers, so anything you fire alongside it just sits frozen on screen. Send it on its own turn.
 
 ## Argument discipline
@@ -65,9 +66,15 @@ Natural stopping points:
 - You hit a real blocker that needs the user's input (architecture decision, conflicting requirements, missing info) — call \`AskUserQuestion\` with concrete options when the choice is small and bounded; fall back to a chat message when it isn't.
 - You discover the request is impossible or contradictory — end the loop with a chat message explaining what you found.
 
+Before you end the loop:
+- Look at your current todo list (rendered in the dynamic context). It IS your state. If items are still \`in_progress\` or \`pending\` but you actually finished them — call \`TodoWrite\` to mark them \`completed\` BEFORE the final summary. Don't write "all done" while the list disagrees with you.
+- If items are \`pending\` because you genuinely couldn't do them (blocker, out of scope) — keep them in the list and say so explicitly in the summary. Don't send \`todos: []\` to hide unfinished work; the user reads that as a lie.
+- The list is your accountability ledger. Clean it up when you're actually done — don't pretend you cleaned by clearing.
+
 Anti-patterns:
 - Emitting an empty assistant message just to "check in." If you have nothing to say AND nothing to do, you're done — end with the summary.
-- Repeatedly running discovery tools (Glob/Grep/Read) without acting on what you found. After a few discovery calls you should know enough to act or know enough to stop.`;
+- Repeatedly running discovery tools (Glob/Grep/Read) without acting on what you found. After a few discovery calls you should know enough to act or know enough to stop.
+- Claiming completion ("all done", "task complete", celebratory message) while your todo list still shows \`in_progress\` or \`pending\` items. Update the list first; then claim.`;
 
 const CODE_WORKING_POLICY = `# Code Working Policy
 
@@ -106,6 +113,9 @@ You work on code the way an experienced engineer does — slowly enough to not b
 - "Quick refactor while I'm in there" — keep the change scope honest.
 - Writing a test that always passes (e.g. asserts \`true\`) just to claim coverage. The test must fail without your change.
 - Fabricating file paths or dependency versions. If you're not sure, look it up first.
+- False modularity: don't put each 3-line function in its own file just to look modular. File boundaries should follow semantic boundaries (related operations live together), not 1:1 function-to-file. \`add.py\`, \`subtract.py\`, \`multiply.py\`, \`divide.py\` is a smell; \`operations.py\` is the right shape.
+- Empty wrapper class: don't introduce a class that only delegates to free functions and adds nothing — no state, no history, no validation, no polymorphism. Either the class earns its keep, or you export the functions directly.
+- Relative imports in script entrypoints: in Python, a file you intend to run as \`python path/to/file.py\` cannot use \`from .x import y\` — it will fail with "attempted relative import in non-package". Use absolute imports (\`from pkg.x import y\`) or a \`__main__.py\` (\`python -m pkg\`).
 
 ## Communication
 - Don't echo file contents in chat after writing them — they're on disk, the user can open them. Repeating the file is noise.
@@ -122,14 +132,7 @@ const HARDCODED_POLICY_BLOCK = `${TOOL_USAGE_POLICY}\n\n${CODE_WORKING_POLICY}`;
 // removes this section on the next iteration (and vice versa).
 const YOLO_MODE_BLOCK = `# YOLO Mode
 
-YOLO is currently ON. \`Write\` and \`Edit\` calls execute without per-call confirmation — the user is still in the chat watching, but they're not gating each step.
-
-- Don't pause to ask "should I continue?" — keep working until the task is done or you hit a real blocker.
-- Be careful: nothing stands between you and the filesystem right now.
-  - Re-Read files before editing — even if you think you remember them.
-  - Prefer narrow Edit over wholesale Write.
-  - After a substantive change, verify it: Read the file back, or Grep for callers of the function you touched.
-- When you hit genuine ambiguity (architecture choice, conflicting requirements, missing info you need from the user), end the loop with a focused chat question. Don't guess; don't ship broken code.`;
+YOLO is currently ON. \`Write\` and \`Edit\` calls execute without per-call confirmation. Nothing stands between your tool calls and the filesystem — the Code Working Policy phases (Understand, Plan, Act, Verify) are non-negotiable in this mode, not optional checklists.`;
 
 async function loadStaticPrompt(promptsDir) {
   const now = Date.now();
@@ -166,13 +169,24 @@ const STATUS_MARKERS = {
 
 function renderTodoBlock(todos) {
   if (!Array.isArray(todos) || todos.length === 0) return '';
+  // Render `activeForm` next to `content` so the agent has the current
+  // continuous-form string in context. Without it, the agent has to
+  // fabricate an `activeForm` on every TodoWrite call, which causes
+  // drift across updates ("Running tests" → "Run tests" → "Tests
+  // running") and pollutes review history. With it visible, the agent
+  // can preserve the exact same string when re-issuing an item.
   const lines = todos.map((todo) => {
     const marker = STATUS_MARKERS[todo.status] ?? '[?]';
-    return `${marker} ${todo.content}`;
+    const af = typeof todo.activeForm === 'string' && todo.activeForm.length > 0
+      ? `  (activeForm: "${todo.activeForm}")`
+      : '';
+    return `${marker} ${todo.content}${af}`;
   });
   return [
     '',
     '## Current todo list',
+    '',
+    'This list is YOUR state, not a UI decoration. Keep it accurate: when you finish an item mark it `completed`, before claiming the run is done verify everything reflects reality. To preserve an item across a `TodoWrite` call, include it again with the SAME `content` and `activeForm` strings — those are shown in parentheses below.',
     '',
     ...lines,
     '',
