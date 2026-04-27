@@ -11,6 +11,7 @@ const rendererMap: Record<string, React.FC<ToolRendererProps>> = {
   WriteFile: DiffRenderer,
   EditFile: DiffRenderer,
   Write: DiffRenderer,
+  Edit: DiffRenderer,
   Read: ReadRenderer,
 };
 
