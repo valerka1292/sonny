@@ -1,4 +1,4 @@
-import { DiffFile, DiffHunk, ToolCall } from '../../types';
+import { ToolCall } from '../../types';
 import { parsePartialJson } from '../../services/streaming/partialJson';
 
 /**
@@ -18,6 +18,4 @@ export function parseToolArguments(toolCall: ToolCall): Record<string, unknown> 
   return fromRaw ?? {};
 }
 
-export function buildDiffFile(filePath: string, hunks: DiffHunk[]): DiffFile {
-  return { filePath, hunks };
-}
+

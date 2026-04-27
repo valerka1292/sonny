@@ -1,25 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Cpu, Check, Copy, Wrench } from 'lucide-react';
+import { Cpu, Check, Copy } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { DiffHunk, Message, ToolCall } from '../types';
+import { Message, ToolCall } from '../types';
 import { ReasoningBlock } from './ReasoningBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { getToolRenderer } from './toolRenderers/registry';
-import PendingConfirmationCard from './PendingConfirmationCard';
+import { PendingConfirmationContext } from './PendingConfirmationContext';
 
 interface MessageListProps {
   messages: Message[];
   isTyping?: boolean;
   pendingConfirmation?: {
     toolCall: ToolCall;
-    output: {
-      type?: 'create' | 'update';
-      filePath?: string;
-      structuredPatch?: DiffHunk[];
-    };
+    output: unknown;
   } | null;
   onApprove?: () => void;
   onReject?: (reason: string) => void;
@@ -113,7 +109,19 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
     return <ToolCallCard key={tc.index} toolCall={tc} />;
   };
 
+  const noopApprove = React.useCallback(() => {}, []);
+  const noopReject = React.useCallback(() => {}, []);
+  const ctxValue = React.useMemo(
+    () => ({
+      pendingConfirmation: pendingConfirmation ?? null,
+      onApprove: onApprove ?? noopApprove,
+      onReject: onReject ?? noopReject,
+    }),
+    [pendingConfirmation, onApprove, onReject, noopApprove, noopReject],
+  );
+
   return (
+    <PendingConfirmationContext.Provider value={ctxValue}>
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-[768px] mx-auto px-4 py-8 flex flex-col gap-6">
         {messages.map((msg, idx) => {
@@ -151,28 +159,6 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
           );
         })}
 
-        {pendingConfirmation && onApprove && onReject && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col gap-2 items-start"
-          >
-            <div className="flex gap-3 w-full items-start">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-bg-2 to-bg-3 border border-border flex items-center justify-center shrink-0 mt-0.5">
-                <Cpu size={14} className="text-text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <PendingConfirmationCard
-                  toolCall={pendingConfirmation.toolCall}
-                  output={pendingConfirmation.output}
-                  onApprove={onApprove}
-                  onReject={onReject}
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
-
         {isTyping && (
           <motion.div
             initial={{ opacity: 0, y: 5 }}
@@ -195,5 +181,6 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
         <div ref={bottomRef} className="h-px w-full" />
       </div>
     </div>
+    </PendingConfirmationContext.Provider>
   );
 }

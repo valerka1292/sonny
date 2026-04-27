@@ -1,20 +1,56 @@
-import { Loader2 } from 'lucide-react';
+import { Check, Loader2, X } from 'lucide-react';
 import type { DiffFile, ToolRendererProps } from '../../types';
+import { usePendingConfirmation } from '../PendingConfirmationContext';
+import ConfirmationActions from './ConfirmationActions';
+
+interface DiffOutput {
+  diff?: DiffFile;
+  applied?: boolean;
+  filePath?: string;
+}
+
+function getVerb(toolName: string | undefined, finalSuccess: boolean): string {
+  switch (toolName) {
+    case 'Write':
+    case 'WriteFile':
+      return finalSuccess ? 'Wrote' : 'Write';
+    case 'Edit':
+    case 'EditFile':
+      return finalSuccess ? 'Edited' : 'Edit';
+    default:
+      return toolName ?? 'Tool';
+  }
+}
 
 export default function DiffRenderer({ toolCall }: ToolRendererProps) {
-  const output = toolCall.result?.output as { diff?: DiffFile } | undefined;
+  const output = toolCall.result?.output as DiffOutput | undefined;
   const finalDiff = output?.diff;
   const previewDiff = toolCall.streamingPreview?.diff;
   const status = toolCall.result?.status;
+  const error = toolCall.result?.error;
   const diff = finalDiff ?? previewDiff;
+  const applied = output?.applied === true;
+  const finalSuccess = status === 'success' && applied;
   const isStreaming = !finalDiff && Boolean(previewDiff);
+
+  const ctx = usePendingConfirmation();
+  const isPendingConfirm =
+    ctx?.pendingConfirmation?.toolCall.id !== undefined &&
+    toolCall.id !== undefined &&
+    ctx.pendingConfirmation.toolCall.id === toolCall.id;
+
+  const isUserRejected = status === 'error' && typeof error === 'string' && /reject/i.test(error);
+  const isToolError = status === 'error' && !isUserRejected;
+
+  const toolName = toolCall.function?.name;
+  const verb = getVerb(toolName, finalSuccess);
 
   if (!diff) {
     const argsLen = toolCall.function?.arguments?.length ?? 0;
     return (
       <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
         <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
-          {toolCall.function?.name || 'Write'}
+          {verb}
           {status === 'running' ? ': Applying' : ''}
         </div>
         <div className="px-3 py-3 text-xs text-text-secondary flex items-center gap-2">
@@ -25,16 +61,36 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
     );
   }
 
+  const headerToneClass = isToolError
+    ? 'text-red-400'
+    : isUserRejected
+      ? 'text-text-secondary/60'
+      : 'text-text-secondary';
+
   return (
-    <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
-      <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border flex items-center gap-2">
+    <div
+      className={`my-2 rounded-lg border overflow-hidden max-w-full ${
+        isToolError ? 'border-red-900/60' : 'border-border'
+      } bg-bg-2`}
+    >
+      <div
+        className={`px-3 py-2 text-xs font-semibold ${headerToneClass} bg-bg-3/30 border-b border-border flex items-center gap-2`}
+      >
         <span>
-          {toolCall.function?.name}: {diff.filePath}
+          {verb}: {diff.filePath}
         </span>
+        {finalSuccess && <Check size={12} className="text-green-400" />}
+        {isUserRejected && <X size={12} className="text-red-400" />}
         {isStreaming && (
           <span className="ml-auto flex items-center gap-1 text-[10px] uppercase tracking-wider text-accent">
             <Loader2 size={10} className="animate-spin" />
             streaming
+          </span>
+        )}
+        {status === 'running' && !isStreaming && (
+          <span className="ml-auto flex items-center gap-1 text-[10px] uppercase tracking-wider text-text-secondary/70">
+            <Loader2 size={10} className="animate-spin" />
+            applying
           </span>
         )}
       </div>
@@ -79,7 +135,6 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
                       </span>
                     </div>
 
-                    {/* Обычный текст, цвет как базовый в VS Code (светло-серый) */}
                     <div className="flex-1 min-w-0 whitespace-pre-wrap break-all py-0.5 pr-3 text-[#d4d4d4]">
                       {line.content}
                     </div>
@@ -90,6 +145,21 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
           </div>
         ))}
       </div>
+
+      {isPendingConfirm && ctx && (
+        <ConfirmationActions onApprove={ctx.onApprove} onReject={ctx.onReject} />
+      )}
+
+      {isUserRejected && (
+        <div className="border-t border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+      {isToolError && (
+        <div className="border-t border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-300 break-words">
+          {error}
+        </div>
+      )}
     </div>
   );
 }
