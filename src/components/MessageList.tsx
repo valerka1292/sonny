@@ -5,10 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Message, ToolCall } from '../types';
+import type { AskUserQuestion, AskUserQuestionAnswers } from '../types/askUserQuestion';
 import { ReasoningBlock } from './ReasoningBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { getToolRenderer } from './toolRenderers/registry';
 import { PendingConfirmationContext } from './PendingConfirmationContext';
+import { PendingQuestionContext } from './PendingQuestionContext';
 
 interface MessageListProps {
   messages: Message[];
@@ -19,6 +21,12 @@ interface MessageListProps {
   } | null;
   onApprove?: () => void;
   onReject?: (reason: string) => void;
+  pendingQuestion?: {
+    toolCall: ToolCall;
+    questions: AskUserQuestion[];
+  } | null;
+  onAnswerQuestion?: (answers: AskUserQuestionAnswers) => void;
+  onDeclineQuestion?: () => void;
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
@@ -59,7 +67,16 @@ function CodeBlock({ language, children }: { language: string; children: string 
   );
 }
 
-export default function MessageList({ messages, isTyping, pendingConfirmation, onApprove, onReject }: MessageListProps) {
+export default function MessageList({
+  messages,
+  isTyping,
+  pendingConfirmation,
+  onApprove,
+  onReject,
+  pendingQuestion,
+  onAnswerQuestion,
+  onDeclineQuestion,
+}: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const MarkdownComponents = React.useMemo(() => ({
@@ -88,6 +105,8 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
   // below would otherwise change the hook count.
   const noopApprove = React.useCallback(() => {}, []);
   const noopReject = React.useCallback(() => {}, []);
+  const noopAnswer = React.useCallback(() => {}, []);
+  const noopDecline = React.useCallback(() => {}, []);
   const ctxValue = React.useMemo(
     () => ({
       pendingConfirmation: pendingConfirmation ?? null,
@@ -95,6 +114,14 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
       onReject: onReject ?? noopReject,
     }),
     [pendingConfirmation, onApprove, onReject, noopApprove, noopReject],
+  );
+  const questionCtxValue = React.useMemo(
+    () => ({
+      pendingQuestion: pendingQuestion ?? null,
+      onSubmit: onAnswerQuestion ?? noopAnswer,
+      onDecline: onDeclineQuestion ?? noopDecline,
+    }),
+    [pendingQuestion, onAnswerQuestion, onDeclineQuestion, noopAnswer, noopDecline],
   );
 
   if (messages.length === 0) {
@@ -125,6 +152,7 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
 
   return (
     <PendingConfirmationContext.Provider value={ctxValue}>
+    <PendingQuestionContext.Provider value={questionCtxValue}>
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-[768px] mx-auto px-4 py-8 flex flex-col gap-6">
         {messages.map((msg, idx) => {
@@ -184,6 +212,7 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
         <div ref={bottomRef} className="h-px w-full" />
       </div>
     </div>
+    </PendingQuestionContext.Provider>
     </PendingConfirmationContext.Provider>
   );
 }

@@ -24,6 +24,7 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 - \`Write(file_path, content)\` — full-file replace. Use only for new files or genuine full rewrites. For surgical changes, prefer \`Edit\`.
 - \`Edit(file_path, old_string, new_string, replace_all?)\` — anchored substring replacement. Requires you to have called \`Read\` on the same file in the current session first.
 - \`TodoWrite(todos)\` — only for genuinely multi-step (~3+) work. Don't track trivial single-step tasks.
+- \`AskUserQuestion(questions)\` — ask the user 1-4 multiple-choice questions when you have a *real* ambiguity that only they can resolve (architecture choice, conflicting requirements, branching plans). Each question carries a short \`header\` chip, the question text, and 2-4 options with \`{label, description}\`; set \`multiSelect: true\` when the choices are not mutually exclusive. The user can also type a free-form answer, so don't add a manual "Other" option. Don't use this as a stalling pattern ("should I continue?") — it's for genuine forks in the road, not generic check-ins.
 
 ## Parallel tool calls
 
@@ -59,7 +60,7 @@ You drive your own loop. There is no hard iteration cap — keep working through
 Natural stopping points:
 - All Todos are \`completed\` and the user's original ask is satisfied — produce a brief final summary in chat (no tool calls).
 - The task was genuinely a one-shot — answer in chat (no tool calls).
-- You hit a real blocker that needs the user's input (architecture decision, conflicting requirements, missing info) — end the loop with a chat message explaining what you need. (Or use \`AskUserQuestion\` when that tool is available.)
+- You hit a real blocker that needs the user's input (architecture decision, conflicting requirements, missing info) — call \`AskUserQuestion\` with concrete options when the choice is small and bounded; fall back to a chat message when it isn't.
 - You discover the request is impossible or contradictory — end the loop with a chat message explaining what you found.
 
 Anti-patterns:
