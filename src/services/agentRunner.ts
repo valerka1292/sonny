@@ -162,11 +162,32 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
           previewOrchestrator.ingestDelta(toolCall.index, merged?.function?.name, merged?.function?.arguments);
         },
         onDone: async (usage) => {
+          // Make sure the orchestrator has seen every tool call's final args at
+          // least once — guards against providers that send args in a single
+          // chunk that arrives outside the rAF window.
+          for (const finalTc of finalToolCalls.values()) {
+            previewOrchestrator.ingestDelta(
+              finalTc.index,
+              finalTc.function?.name,
+              finalTc.function?.arguments,
+            );
+          }
           previewOrchestrator.flushSync();
           previewOrchestrator.dispose();
           if (!shouldProcessUpdate()) return;
 
-          const finalToolCallsList = Array.from(finalToolCalls.values());
+          // Carry over streamingPreview that the orchestrator dispatched into
+          // workingMessages so it survives the rebuild from `finalToolCalls`.
+          const lastWorkingAssistant = workingMessages.find((m) => m.id === assistantId);
+          const previewByIndex = new Map<number, NonNullable<ToolCall['streamingPreview']>>();
+          lastWorkingAssistant?.toolCalls?.forEach((tc) => {
+            if (tc.streamingPreview) previewByIndex.set(tc.index, tc.streamingPreview);
+          });
+
+          const finalToolCallsList: ToolCall[] = Array.from(finalToolCalls.values()).map((tc) => {
+            const preview = previewByIndex.get(tc.index);
+            return preview ? { ...tc, streamingPreview: preview } : tc;
+          });
           const lastAssistant: Message = {
             ...assistantMsg,
             content: finalAssistantContent,
@@ -236,6 +257,13 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               const toolDef = toolDefinitions.find((t) => t.function?.name === tc.function?.name);
               const toolMode = toolDef?.mode ?? 'ro';
 
+              // The IPC handler returns `{ error: string }` on schema validation
+              // failure instead of throwing. Surface it as a real error so we don't
+              // pop the confirmation dialog with a half-empty `output`.
+              if (output && typeof output === 'object' && 'error' in output && typeof (output as { error: unknown }).error === 'string') {
+                throw new Error((output as { error: string }).error);
+              }
+
               if (isReadToolName(tc.function?.name)) {
                 const readData = extractReadResult(output);
                 if (readData) rememberFileContent(readData.filePath, readData.content);
@@ -247,6 +275,8 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
                   t.index === tc.index ? { ...t, result: { status: 'success', output } } : t,
                 ),
               };
+              if (!shouldProcessUpdate()) return;
+              onMessages([...currentMessages]);
 
               if (toolMode === 'rw' && !yoloMode) {
                 const decision = await askConfirmation(tc, output);
