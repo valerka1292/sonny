@@ -234,7 +234,12 @@ export default function App() {
                     if (!shouldProcessUpdate()) return;
                     setMessages([...currentMessages]);
 
-                    const args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+                    let args = {};
+                    try {
+                      args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+                    } catch (error: any) {
+                      throw new Error(`Invalid JSON arguments for tool ${tc.function?.name || 'unknown'}: ${error.message}`);
+                    }
                     const output = await executeTool(tc.function!.name!, args);
                     const toolDef = toolDefinitions.find(t => t.function?.name === tc.function?.name);
                     const toolMode = toolDef?.mode ?? 'ro';

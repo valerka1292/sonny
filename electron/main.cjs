@@ -197,7 +197,13 @@ function registerIpc() {
         if (controller.signal.aborted) throw new Error(`Tool ${name} aborted`);
       },
     };
-    const parsed = tool.inputSchema.parse(input);
+    const parseResult = tool.inputSchema.safeParse(input);
+    if (!parseResult.success) {
+      return {
+        error: `Schema validation failed for tool "${name}": ${parseResult.error.message}. Please fix your arguments and retry.`,
+      };
+    }
+    const parsed = parseResult.data;
     try {
       return await Promise.race([
         tool.execute(parsed, context),
