@@ -26,6 +26,7 @@
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.38.0",
+    "partial-json": "^0.1.7",
     "piscina": "^5.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

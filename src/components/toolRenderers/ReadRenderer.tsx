@@ -10,8 +10,8 @@ interface ReadOutput {
   content?: string;
 }
 
-function getStatusIcon(status?: 'running' | 'success' | 'error') {
-  if (status === 'running') return <Loader2 size={12} className="animate-spin text-accent" />;
+function getStatusIcon(status: 'streaming' | 'running' | 'success' | 'error' | 'idle') {
+  if (status === 'streaming' || status === 'running') return <Loader2 size={12} className="animate-spin text-accent" />;
   if (status === 'success') return <CheckCircle2 size={12} className="text-green-500" />;
   if (status === 'error') return <XCircle size={12} className="text-red-500" />;
   return <Wrench size={12} />;
@@ -23,12 +23,15 @@ export default function ReadRenderer({ toolCall }: ToolRendererProps) {
   const result = toolCall.result;
   const status = result?.status;
   const output = result?.output as ReadOutput | undefined;
+  const isStreaming = !result && Boolean(toolCall.function?.arguments);
+  const visualStatus = status ?? (isStreaming ? 'streaming' : 'idle');
+  const verb = visualStatus === 'streaming' ? 'Reading' : visualStatus === 'running' ? 'Reading' : 'Read';
 
   return (
     <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
       <div className="flex items-start gap-2 px-3 py-2 text-xs text-text-secondary bg-bg-3/30">
-        <div className="flex items-center justify-center w-4 h-4 mt-0.5">{getStatusIcon(status)}</div>
-        <div className="font-mono whitespace-pre-wrap break-words flex-1">Read {filePath}</div>
+        <div className="flex items-center justify-center w-4 h-4 mt-0.5">{getStatusIcon(visualStatus)}</div>
+        <div className="font-mono whitespace-pre-wrap break-words flex-1">{verb} {filePath || '…'}</div>
       </div>
 
       {status === 'success' && output && (

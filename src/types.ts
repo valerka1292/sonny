@@ -6,6 +6,11 @@ export interface ToolCallResult {
   output?: any;
 }
 
+export interface ToolCallStreamingPreview {
+  parsedArgs?: Record<string, unknown>;
+  diff?: DiffFile;
+}
+
 export interface ToolCall {
   index: number;
   id?: string;
@@ -14,6 +19,7 @@ export interface ToolCall {
     arguments?: string;
   };
   result?: ToolCallResult;
+  streamingPreview?: ToolCallStreamingPreview;
 }
 
 export interface ToolRendererProps {
