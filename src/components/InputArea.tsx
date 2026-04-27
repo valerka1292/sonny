@@ -12,6 +12,18 @@ interface InputAreaProps {
   mode: AgentMode;
   onModeChange: (mode: AgentMode) => void;
   onSend: (text: string) => void;
+  /**
+   * Called when the user clicks Stop in Chat mode while the agent is
+   * streaming. Aborts the in-flight request and finalizes the partial
+   * state. See `App.tsx#handleStop`.
+   */
+  onStop?: () => void;
+  /**
+   * True while the agent loop is actively running in Chat mode (streaming
+   * output or executing tools). Drives the Send ↔ Stop swap and locks the
+   * textarea so the user can't queue a second prompt mid-loop.
+   */
+  isStreaming?: boolean;
   hasProvider: boolean;
   isAgentRunning: boolean;
   onToggleAgent: () => void;
@@ -26,6 +38,8 @@ export default function InputArea({
   mode,
   onModeChange,
   onSend,
+  onStop,
+  isStreaming = false,
   hasProvider,
   isAgentRunning,
   onToggleAgent,
@@ -38,7 +52,9 @@ export default function InputArea({
   const [text, setText] = React.useState('');
   const [todoModalOpen, setTodoModalOpen] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-  const canSend = Boolean(text.trim()) && hasProvider && !disabled;
+  // While streaming, the input is locked; the right-hand button becomes Stop.
+  const inputDisabled = disabled || isStreaming;
+  const canSend = Boolean(text.trim()) && hasProvider && !inputDisabled;
   const isModeLocked = true;
 
   const handleSend = () => {
@@ -150,20 +166,37 @@ export default function InputArea({
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={hasProvider ? 'Message agent...' : 'Add a provider in Settings to start'}
+                placeholder={
+                  isStreaming
+                    ? 'Agent is working… press Stop to interrupt'
+                    : hasProvider
+                      ? 'Message agent...'
+                      : 'Add a provider in Settings to start'
+                }
                 aria-label="Message input"
-                disabled={!hasProvider || disabled}
+                disabled={!hasProvider || inputDisabled}
                 className="min-h-[52px] max-h-[200px] flex-1 resize-none bg-transparent pt-3 text-[15px] leading-relaxed text-text-primary outline-none placeholder:text-text-secondary scrollbar-thin disabled:opacity-50"
                 rows={1}
               />
-              <button
-                aria-label="Send message"
-                onClick={handleSend}
-                disabled={!canSend}
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white text-black transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-bg-3 disabled:text-text-secondary disabled:hover:opacity-100 focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                <Send size={16} />
-              </button>
+              {isStreaming ? (
+                <button
+                  type="button"
+                  aria-label="Stop generation"
+                  onClick={() => onStop?.()}
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-red-500 text-white transition-colors hover:bg-red-600 focus-visible:ring-2 focus-visible:ring-red-500/50"
+                >
+                  <Square size={14} className="fill-current" />
+                </button>
+              ) : (
+                <button
+                  aria-label="Send message"
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white text-black transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-bg-3 disabled:text-text-secondary disabled:hover:opacity-100 focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  <Send size={16} />
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-center gap-3 py-6">

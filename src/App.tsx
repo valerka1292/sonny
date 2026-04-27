@@ -8,6 +8,7 @@ import { AgentMode, LlmHistoryMessage, Message, ToolCall } from './types';
 import { useProviders } from './hooks/useProviders';
 import { useChats } from './hooks/useChats';
 import { runAgentConversation } from './services/agentRunner';
+import { finalizeStoppedRun, reconstructLlmHistory, STOP_GENERATION_ERROR } from './services/stopFinalizer';
 
 export default function App() {
   const {
@@ -78,6 +79,63 @@ export default function App() {
     }
     setPendingConfirmation(null);
   }, []);
+
+  const handleStop = useCallback(async () => {
+    console.log('[App] User pressed Stop');
+    // 1) Unblock any pending confirmation so the runner can return
+    //    immediately; the resolver answers "rejected with stop reason" so
+    //    that flow path won't re-execute the tool.
+    if (confirmationResolverRef.current) {
+      confirmationResolverRef.current({ approved: false, reason: STOP_GENERATION_ERROR });
+      confirmationResolverRef.current = null;
+    }
+    setPendingConfirmation(null);
+
+    // 2) Abort the network/IPC stream. From this point shouldProcessUpdate()
+    //    inside agentRunner returns false, so no more setMessages will
+    //    fire from the runner.
+    pendingRequestControllerRef.current?.abort();
+    pendingRequestControllerRef.current = null;
+
+    // 3) Yield one microtask so any already-queued onMessages from before
+    //    the abort lands in messagesRef.
+    await Promise.resolve();
+
+    const chatIdSnapshot = activeChatIdRef.current;
+    if (!chatIdSnapshot) {
+      setIsTyping(false);
+      return;
+    }
+
+    // 4) Read latest UI snapshot, normalize in-flight tool calls into a
+    //    structured "User stopped generation" error.
+    const finalizedMessages = finalizeStoppedRun(messagesRef.current);
+    setMessages(finalizedMessages);
+
+    // 5) Rebuild the LLM-visible history from the finalized messages so the
+    //    next user message has a valid handshake (every tool_call_id paired
+    //    with a tool result, no dangling assistant tool_calls).
+    const rebuiltHistory = reconstructLlmHistory(finalizedMessages);
+    setLlmHistory(rebuiltHistory);
+
+    // 6) Persist to disk so the stopped state survives a chat switch / reload.
+    await persistChatData(
+      chatIdSnapshot,
+      finalizedMessages,
+      rebuiltHistory,
+      contextTokensUsedRef.current,
+    );
+
+    setIsTyping(false);
+  }, [
+    activeChatIdRef,
+    messagesRef,
+    contextTokensUsedRef,
+    persistChatData,
+    setIsTyping,
+    setLlmHistory,
+    setMessages,
+  ]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -253,6 +311,8 @@ export default function App() {
           mode={mode}
           onModeChange={setMode}
           onSend={handleSend}
+          onStop={handleStop}
+          isStreaming={isTyping}
           hasProvider={activeProvider !== null}
           isAgentRunning={isAgentRunning}
           onToggleAgent={() => setIsAgentRunning(!isAgentRunning)}
