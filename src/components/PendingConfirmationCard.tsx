@@ -19,7 +19,15 @@ interface PendingConfirmationCardProps {
 export default function PendingConfirmationCard({ toolCall, output, onApprove, onReject }: PendingConfirmationCardProps) {
   const [reason, setReason] = useState('');
   const [showReason, setShowReason] = useState(false);
-  const isUpdate = output?.type === 'update';
+
+  // Fall back to the streaming preview diff when the main-process tool output
+  // didn't include a structured patch (e.g. brand-new file → empty patch).
+  const previewDiff = toolCall.streamingPreview?.diff;
+  const filePath = output?.filePath || previewDiff?.filePath || '';
+  const hunks = output?.structuredPatch && output.structuredPatch.length > 0
+    ? output.structuredPatch
+    : previewDiff?.hunks ?? [];
+  const isUpdate = output?.type === 'update' || (output?.type === undefined && hunks.length > 0);
 
   const handleRejectClick = () => {
     if (!showReason) {
@@ -32,7 +40,7 @@ export default function PendingConfirmationCard({ toolCall, output, onApprove, o
   return (
     <div className="my-2 w-full rounded-lg border border-border bg-bg-2 p-4">
       <div className="mb-3 text-xs text-text-secondary">
-        Pending confirmation: {toolCall.function?.name} {output.filePath ? `(${output.filePath})` : ''}
+        Pending confirmation: {toolCall.function?.name} {filePath ? `(${filePath})` : ''}
       </div>
 
       {isUpdate ? (
@@ -43,7 +51,7 @@ export default function PendingConfirmationCard({ toolCall, output, onApprove, o
               result: {
                 status: 'success',
                 output: {
-                  diff: buildDiffFile(output.filePath || '', output.structuredPatch || []),
+                  diff: buildDiffFile(filePath, hunks),
                 },
               },
             }}
@@ -51,7 +59,7 @@ export default function PendingConfirmationCard({ toolCall, output, onApprove, o
         </div>
       ) : (
         <div className="mb-3 rounded border border-green-500/30 bg-green-950/20 p-2 text-xs text-green-300">
-          New file will be created at {output.filePath || 'unknown path'}.
+          New file will be created at {filePath || 'unknown path'}.
         </div>
       )}
 
