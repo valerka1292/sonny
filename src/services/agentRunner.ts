@@ -281,9 +281,12 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               if (toolMode === 'rw' && !yoloMode) {
                 const decision = await askConfirmation(tc, output);
                 if (decision.approved) {
+                  // Re-issue the tool with the model's original args plus
+                  // apply:true so each rw tool's own input shape is preserved
+                  // (Write expects {file_path, content}, Edit expects
+                  // {file_path, old_string, new_string, replace_all}).
                   const committedOutput = await executeTool(tc.function!.name!, {
-                    file_path: output.filePath,
-                    content: output.content,
+                    ...args,
                     apply: true,
                   });
 
@@ -321,11 +324,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               } else {
                 const finalOutput =
                   toolMode === 'rw'
-                    ? await executeTool(tc.function!.name!, {
-                        file_path: output.filePath,
-                        content: output.content,
-                        apply: true,
-                      })
+                    ? await executeTool(tc.function!.name!, { ...args, apply: true })
                     : output;
 
                 if (toolMode === 'rw' && finalOutput?.filePath && typeof finalOutput.content === 'string') {
