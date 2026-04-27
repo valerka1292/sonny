@@ -1,24 +1,20 @@
 const path = require('path');
-const fsSync = require('fs');
 const fs = require('fs/promises');
 
 function checkPathInSandbox(userPath, cwd) {
-  const resolved = path.resolve(cwd, userPath || '.');
-  const sandboxRoot = fsSync.realpathSync(cwd);
-  try {
-    const realTarget = fsSync.realpathSync(resolved);
-    if (!realTarget.startsWith(sandboxRoot + path.sep) && realTarget !== sandboxRoot) {
-      throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
-    }
-    return realTarget;
-  } catch {
-    const parentDir = path.dirname(resolved);
-    const realParentDir = fsSync.realpathSync(parentDir);
-    if (!realParentDir.startsWith(sandboxRoot + path.sep) && realParentDir !== sandboxRoot) {
-      throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
-    }
-    return resolved;
+  const sandboxRoot = path.resolve(cwd);
+  const targetPath = path.resolve(cwd, userPath || '.');
+  const relative = path.relative(sandboxRoot, targetPath);
+
+  if (relative === '' || relative === '.') {
+    return sandboxRoot;
   }
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
+  }
+
+  return targetPath;
 }
 
 async function fileStatSafe(filePath) {
@@ -38,12 +34,13 @@ function toRelativePath(absPath, cwd) {
   }
 }
 
-
-async function atomicWriteFile(targetPath, content) {
+async function atomicWriteFile(targetPath, content, options = {}) {
   const tmpPath = `${targetPath}.tmp`;
+  const { signal } = options;
+
   try {
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(tmpPath, content, 'utf-8');
+    await fs.mkdir(path.dirname(targetPath), { recursive: true, signal });
+    await fs.writeFile(tmpPath, content, { encoding: 'utf-8', signal });
     await fs.rename(tmpPath, targetPath);
   } catch (error) {
     await fs.unlink(tmpPath).catch(() => {});
