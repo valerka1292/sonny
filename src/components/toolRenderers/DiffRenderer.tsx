@@ -1,42 +1,5 @@
-import { useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-markdown';
 import type { DiffFile, ToolRendererProps } from '../../types';
-
-function getLanguage(filePath: string): string {
-  if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) return 'typescript';
-  if (filePath.endsWith('.js') || filePath.endsWith('.jsx')) return 'javascript';
-  if (filePath.endsWith('.json')) return 'json';
-  if (filePath.endsWith('.css')) return 'css';
-  if (filePath.endsWith('.md')) return 'markdown';
-  return 'text';
-}
-
-function getPrismLanguage(language: string): string {
-  if (language === 'typescript') return 'typescript';
-  if (language === 'javascript') return 'javascript';
-  if (language === 'json') return 'json';
-  if (language === 'css') return 'css';
-  if (language === 'markdown') return 'markdown';
-  return 'plain';
-}
-
-function highlightHunkLines(diff: DiffFile, language: string): string[][] {
-  const prismLang = getPrismLanguage(language);
-  const grammar = Prism.languages[prismLang] || Prism.languages.plain;
-
-  return diff.hunks.map((hunk) => {
-    const joined = hunk.lines.map((line) => line.content).join('\n');
-    const highlighted = Prism.highlight(joined, grammar, prismLang);
-    return highlighted.split('\n');
-  });
-}
 
 export default function DiffRenderer({ toolCall }: ToolRendererProps) {
   const output = toolCall.result?.output as { diff?: DiffFile } | undefined;
@@ -68,19 +31,16 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
     );
   }
 
-  const language = diff.language || getLanguage(diff.filePath);
-  const highlightedHunks = useMemo(() => highlightHunkLines(diff, language), [diff, language]);
-
   return (
     <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
       <div className="px-3 py-2 text-xs font-semibold text-text-secondary bg-bg-3/30 border-b border-border">
         {toolCall.function?.name}: {diff.filePath}
       </div>
 
-      <div className="overflow-x-auto text-xs font-mono leading-5">
+      <div className="overflow-x-auto text-[13px] font-mono leading-relaxed">
         {diff.hunks.map((hunk, hunkIdx) => (
           <div key={hunkIdx} className="border-b border-border/30 last:border-b-0">
-            <div className="bg-[#1a2636] text-[#8fa7b7] px-3 py-1 whitespace-pre">{hunk.header}</div>
+            <div className="bg-[#1a2636] text-[#8fa7b7] px-3 py-1 text-xs whitespace-pre">{hunk.header}</div>
 
             <div className="bg-bg-2">
               {hunk.lines.map((line, lineIdx) => {
@@ -94,7 +54,7 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
                       isAddition ? 'bg-green-950/40' : isDeletion ? 'bg-red-950/40' : ''
                     } hover:bg-bg-3/50`}
                   >
-                    <div className="sticky left-0 z-10 flex-shrink-0 w-20 flex border-r border-border/50 select-none text-text-secondary/60 bg-inherit">
+                    <div className="sticky left-0 z-10 flex-shrink-0 w-20 flex border-r border-border/50 select-none text-text-secondary/60 bg-inherit text-xs">
                       <div className={`w-10 text-right pr-2 py-0.5 ${isAddition ? 'opacity-0' : ''}`}>
                         {line.oldLine ?? ''}
                       </div>
@@ -103,7 +63,7 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
                       </div>
                     </div>
 
-                    <div className="sticky left-20 z-10 flex-shrink-0 w-5 text-center py-0.5 select-none bg-inherit">
+                    <div className="sticky left-20 z-10 flex-shrink-0 w-5 text-center py-0.5 select-none bg-inherit text-xs">
                       <span
                         className={
                           isAddition
@@ -117,10 +77,10 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
                       </span>
                     </div>
 
-                    <div
-                      className="flex-1 min-w-0 whitespace-pre-wrap break-all py-0.5 pr-3"
-                      dangerouslySetInnerHTML={{ __html: highlightedHunks[hunkIdx]?.[lineIdx] ?? '' }}
-                    />
+                    {/* Обычный текст, цвет как базовый в VS Code (светло-серый) */}
+                    <div className="flex-1 min-w-0 whitespace-pre-wrap break-all py-0.5 pr-3 text-[#d4d4d4]">
+                      {line.content}
+                    </div>
                   </div>
                 );
               })}
