@@ -26,7 +26,7 @@ class GlobTool extends Tool {
 
     this.inputSchema = z.strictObject({
       pattern: z.string().describe('The glob pattern to match files against'),
-      path: z.string().optional().describe('The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.'),
+      search_path: z.string().optional().describe('The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" — simply omit it for the default behavior. Must be a valid directory path if provided. Distinct from the `file_path` field used by Read/Write/Edit — here it is the search root, not a target file.'),
     });
 
     this.outputSchema = z.object({
@@ -41,24 +41,24 @@ class GlobTool extends Tool {
     const start = Date.now();
     const { cwd: sandboxRoot, signal } = context;
 
-    if (input.path) {
-      const absolutePath = checkPathInSandbox(input.path, sandboxRoot);
+    if (input.search_path) {
+      const absolutePath = checkPathInSandbox(input.search_path, sandboxRoot);
       let stat;
       try {
         stat = await fs.stat(absolutePath);
       } catch {
-        const error = new Error(`Directory does not exist: ${input.path}. The current working directory is ${sandboxRoot}.`);
+        const error = new Error(`Directory does not exist: ${input.search_path}. The current working directory is ${sandboxRoot}.`);
         error.code = 1;
         throw error;
       }
       if (!stat.isDirectory()) {
-        const error = new Error(`Path is not a directory: ${input.path}`);
+        const error = new Error(`Path is not a directory: ${input.search_path}`);
         error.code = 2;
         throw error;
       }
     }
 
-    let searchDir = input.path ? checkPathInSandbox(input.path, sandboxRoot) : sandboxRoot;
+    let searchDir = input.search_path ? checkPathInSandbox(input.search_path, sandboxRoot) : sandboxRoot;
     let searchPattern = input.pattern;
 
     if (path.isAbsolute(input.pattern)) {

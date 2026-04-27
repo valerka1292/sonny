@@ -45,7 +45,7 @@ class GrepTool extends Tool {
 
     this.inputSchema = z.strictObject({
       pattern: z.string().describe('The regular expression pattern to search for in file contents'),
-      path: z.string().optional().describe('File or directory to search in (rg PATH). Defaults to current working directory.'),
+      search_path: z.string().optional().describe('File or directory to search in (rg PATH). Defaults to current working directory. Distinct from the `file_path` field used by Read/Write/Edit — here it is the search root, not a target file.'),
       glob: z.string().optional().describe('Glob pattern to filter files (e.g. "*.js", "*.{ts,tsx}") - maps to rg --glob'),
       output_mode: z.enum(['content', 'files_with_matches', 'count']).optional().describe('Output mode: "content" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), "files_with_matches" shows file paths (supports head_limit), "count" shows match counts (supports head_limit). Defaults to "files_with_matches".'),
       '-B': z.number().optional().describe('Number of lines to show before each match (rg -B). Requires output_mode: "content", ignored otherwise.'),
@@ -87,7 +87,7 @@ class GrepTool extends Tool {
     const input = this.inputSchema.parse(rawInput);
 
     const { cwd, signal } = context;
-    const absolutePath = checkPathInSandbox(input.path || '.', cwd);
+    const absolutePath = checkPathInSandbox(input.search_path || '.', cwd);
     const output_mode = input.output_mode || 'files_with_matches';
     const offset = input.offset || 0;
     const showLineNumbers = input['-n'] !== undefined ? input['-n'] : true;

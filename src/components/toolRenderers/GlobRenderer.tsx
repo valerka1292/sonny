@@ -19,7 +19,7 @@ function getStatusIcon(status: 'streaming' | 'running' | 'success' | 'error' | '
 export default function GlobRenderer({ toolCall }: ToolRendererProps) {
   const args = parseToolArguments(toolCall);
   const pattern = (args.pattern as string | undefined) ?? '';
-  const searchPath = args.path as string | undefined;
+  const searchPath = args.search_path as string | undefined;
 
   const result = toolCall.result;
   const status = result?.status;
