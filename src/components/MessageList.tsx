@@ -83,6 +83,20 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  // All hooks must be declared before any conditional return so React can
+  // match them by call-order across renders. The empty-state early return
+  // below would otherwise change the hook count.
+  const noopApprove = React.useCallback(() => {}, []);
+  const noopReject = React.useCallback(() => {}, []);
+  const ctxValue = React.useMemo(
+    () => ({
+      pendingConfirmation: pendingConfirmation ?? null,
+      onApprove: onApprove ?? noopApprove,
+      onReject: onReject ?? noopReject,
+    }),
+    [pendingConfirmation, onApprove, onReject, noopApprove, noopReject],
+  );
+
   if (messages.length === 0) {
     return (
       <motion.div
@@ -108,17 +122,6 @@ export default function MessageList({ messages, isTyping, pendingConfirmation, o
 
     return <ToolCallCard key={tc.index} toolCall={tc} />;
   };
-
-  const noopApprove = React.useCallback(() => {}, []);
-  const noopReject = React.useCallback(() => {}, []);
-  const ctxValue = React.useMemo(
-    () => ({
-      pendingConfirmation: pendingConfirmation ?? null,
-      onApprove: onApprove ?? noopApprove,
-      onReject: onReject ?? noopReject,
-    }),
-    [pendingConfirmation, onApprove, onReject, noopApprove, noopReject],
-  );
 
   return (
     <PendingConfirmationContext.Provider value={ctxValue}>
