@@ -30,12 +30,14 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 
 - If multiple actions are independent — creating several new files, reading several files, running multiple discovery searches — emit them as parallel tool calls in a single turn. The runtime supports it.
 - Sequential tool calls are only required when one call's input depends on another's output (e.g. \`Read\` to learn structure, then \`Edit\` based on what you read).
+- Don't parallelize \`AskUserQuestion\` with other tool calls — it blocks the loop until the user answers, so anything you fire alongside it just sits frozen on screen. Send it on its own turn.
 
 ## Argument discipline
 - Use the EXACT field names the tool's input schema declares. Common ones agents get wrong:
   - \`Read\` / \`Write\` / \`Edit\`: the path field is \`file_path\` (NOT \`path\`).
   - \`Grep\` and \`Glob\`: the field is \`pattern\` and it is required.
   - \`TodoWrite\` input is \`{ todos: [{ content, activeForm, status }] }\`. \`oldTodos\` and \`newTodos\` are OUTPUT fields you receive in the response — never pass them as input.
+  - \`AskUserQuestion\` input is \`{ questions: [{ question, header, options: [{ label, description }], multiSelect? }] }\`. \`questions\` and \`options\` are arrays even with a single entry; \`options\` items are objects \`{label, description}\`, not bare strings.
 - Never pass \`undefined\` or \`null\` for a required field. If you don't have a value, run a discovery tool first; don't fire the call hoping it works.
 - Pass strict input only — extra fields are rejected. If a schema doesn't accept a field, don't invent it.
 
