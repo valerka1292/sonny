@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs/promises');
+const crypto = require('crypto');
 
 function checkPathInSandbox(userPath, cwd) {
   const sandboxRoot = path.resolve(cwd);
@@ -35,7 +36,7 @@ function toRelativePath(absPath, cwd) {
 }
 
 async function atomicWriteFile(targetPath, content, options = {}) {
-  const tmpPath = `${targetPath}.tmp`;
+  const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   const { signal } = options;
 
   try {

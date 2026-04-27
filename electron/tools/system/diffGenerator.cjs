@@ -1,68 +1,44 @@
 const path = require('path');
-const { Worker } = require('worker_threads');
+const os = require('os');
+const Piscina = require('piscina');
 
-function generateDiffHunks(oldStr, newStr, options = {}) {
+const pool = new Piscina({
+  filename: path.join(__dirname, 'diffWorker.cjs'),
+  minThreads: 1,
+  maxThreads: Math.max(2, Math.min(4, os.cpus().length)),
+  idleTimeout: 30_000,
+});
+
+async function generateDiffHunks(oldStr, newStr, options = {}) {
   const { signal, timeoutMs = 30000 } = options;
 
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(path.join(__dirname, 'diffWorker.cjs'));
-    let settled = false;
+  let timeoutId;
 
-    let timeoutId = null;
-
-    const cleanup = () => {
-      if (signal) signal.removeEventListener('abort', onAbort);
-      if (timeoutId) clearTimeout(timeoutId);
-      worker.removeAllListeners();
-      worker.terminate().catch(() => {});
-    };
-
-    const finish = (fn) => (value) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      fn(value);
-    };
-
-    const rejectOnce = finish(reject);
-    const resolveOnce = finish(resolve);
-
-    const onAbort = () => {
-      worker.terminate().catch(() => {});
-      rejectOnce(new Error('Diff generation aborted'));
-    };
-
-    if (signal?.aborted) {
-      onAbort();
-      return;
-    }
-
+  const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
-      worker.terminate().catch(() => {});
-      rejectOnce(new Error(`Diff generation timed out after ${timeoutMs}ms`));
+      reject(new Error(`Diff generation timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-
-    worker.on('message', (payload) => {
-      if (payload && payload.error) {
-        rejectOnce(new Error(payload.error));
-        return;
-      }
-      resolveOnce(payload?.hunks || []);
-    });
-
-    worker.on('error', (error) => {
-      rejectOnce(error);
-    });
-
-    worker.on('exit', (code) => {
-      if (!settled && code !== 0) {
-        rejectOnce(new Error(`Diff worker exited with code ${code}`));
-      }
-    });
-
-    if (signal) signal.addEventListener('abort', onAbort, { once: true });
-    worker.postMessage({ oldStr, newStr });
   });
+
+  const abortPromise =
+    signal == null
+      ? null
+      : new Promise((_, reject) => {
+          if (signal.aborted) {
+            reject(new Error('Diff generation aborted'));
+            return;
+          }
+
+          signal.addEventListener('abort', () => reject(new Error('Diff generation aborted')), { once: true });
+        });
+
+  try {
+    const jobs = [pool.run({ oldStr, newStr }, { signal }), timeoutPromise];
+    if (abortPromise) jobs.push(abortPromise);
+    return await Promise.race(jobs);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 module.exports = { generateDiffHunks };
