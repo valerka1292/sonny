@@ -39,6 +39,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [yoloMode, setYoloMode] = useState(false);
+  const yoloModeRef = useRef(yoloMode);
   const [pendingConfirmation, setPendingConfirmation] = useState<{
     toolCall: ToolCall;
     output: any;
@@ -47,6 +48,25 @@ export default function App() {
   const pendingRequestControllerRef = useRef<AbortController | null>(null);
   const confirmationResolverRef = useRef<((value: { approved: boolean; reason?: string }) => void) | null>(null);
   const isMountedRef = useRef(true);
+
+  const handleYoloModeChange = useCallback((next: boolean) => {
+    setYoloMode(next);
+    yoloModeRef.current = next;
+    // If a confirmation dialog was already showing when the user flipped YOLO
+    // ON, auto-approve it so the agent can proceed without another click. The
+    // agent's next rw call this turn will also skip confirmation thanks to
+    // the ref-based getYoloMode().
+    if (next && confirmationResolverRef.current) {
+      const resolver = confirmationResolverRef.current;
+      confirmationResolverRef.current = null;
+      setPendingConfirmation(null);
+      resolver({ approved: true });
+    }
+  }, []);
+
+  useEffect(() => {
+    yoloModeRef.current = yoloMode;
+  }, [yoloMode]);
 
   const cancelPendingRequest = useCallback(() => {
     console.log('[App] Cancelling pending request');
@@ -108,7 +128,7 @@ export default function App() {
           chatId: chatIdSnapshot,
           requestController,
           isFirstMessage,
-          yoloMode,
+          getYoloMode: () => yoloModeRef.current,
           history: currentLlmHistory,
           messages: currentMessages,
           activeChatIdRef,
@@ -150,7 +170,6 @@ export default function App() {
       activeProvider,
       cancelPendingRequest,
       createChat,
-      yoloMode,
       llmHistoryRef,
       messagesRef,
       contextTokensUsedRef,
@@ -239,7 +258,7 @@ export default function App() {
           onToggleAgent={() => setIsAgentRunning(!isAgentRunning)}
           contextTokensUsed={contextTokensUsed}
           yoloMode={yoloMode}
-          onYoloModeChange={setYoloMode}
+          onYoloModeChange={handleYoloModeChange}
           activeChatId={activeChatId ?? null}
           disabled={Boolean(pendingConfirmation)}
         />
