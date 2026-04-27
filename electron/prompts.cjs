@@ -3,9 +3,14 @@ const path = require('path');
 const os = require('os');
 const { readTodos } = require('./tools/system/todoStore.cjs');
 
+// loadStaticPrompt() caches the assembled markdown payload and invalidates
+// the cache whenever any *.md file in promptsDir is added, removed or
+// modified. We compare a signature derived from each file's name + mtime
+// rather than a fixed time-to-live so that an edit to identity.md is
+// reflected in the next system prompt without waiting out a TTL window
+// (the previous 5 s TTL caused stale prompts in dev when reloading mid-edit).
 let cachedStaticPrompt = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 5000; // 5 sec
+let cachedSignature = '';
 
 // Operating frame. Hardcoded so the user can't accidentally delete it via
 // identity.md and the model can't overwrite it via Write. Sits at the very
@@ -83,7 +88,7 @@ Detailed rationale and per-tool guidance follow.
 
 ## TodoWrite specifics
 - The list is REPLACED wholesale on every call. To remove an item, omit it. To clear the list entirely, send \`todos: []\`. To preserve an item, include it again with the SAME \`content\` and \`activeForm\` strings.
-- Status legend (matches what's rendered in the dynamic context): \`[ ]\` = \`pending\`, \`[~]\` = \`in_progress\`, \`[x]\` = \`completed\`.
+- Status legend lives in the dynamic context above (under \`## Current todo list\`). Use those exact statuses (\`pending\` / \`in_progress\` / \`completed\`) on every call.
 - Update the list at meaningful checkpoints — when you finish a feature, when the next batch of work changes shape — not after every single tool call. Don't burn iterations micromanaging the list.
 - Multiple items may be \`in_progress\` simultaneously when steps are independent. The "one in_progress" rule from typical task trackers does not apply to a tool-driven agent: parallelism is a feature.
 - Both \`content\` (imperative: "Run tests") and \`activeForm\` (continuous: "Running tests") are required on every item.
@@ -98,10 +103,10 @@ Natural stopping points:
 - You hit a real blocker that needs the user's input (architecture decision, conflicting requirements, missing info) — call \`AskUserQuestion\` with concrete options when the choice is small and bounded; fall back to a chat message when it isn't.
 - You discover the request is impossible or contradictory — end the loop with a chat message explaining what you found.
 
-Before you end the loop:
-- Look at the todo list rendered above under \`## Current todo list\`. It IS your state. If items are still \`in_progress\` or \`pending\` but you actually finished them — call \`TodoWrite\` to mark them \`completed\` BEFORE the final summary. Don't write "all done" while the list disagrees with you.
-- If items are \`pending\` because you genuinely couldn't do them (blocker, out of scope) — keep them in the list and say so explicitly in the summary. Don't send \`todos: []\` to hide unfinished work; the user reads that as a lie.
-- The list is your accountability ledger. Clean it up when you're actually done — don't pretend you cleaned by clearing.
+Closing the loop (single procedure, run in this order before the final summary):
+1. **Reconcile the list with reality.** Look at the todo list rendered above under \`## Current todo list\`. For every item that's actually done but still shows \`pending\` / \`in_progress\`, call \`TodoWrite\` and mark it \`completed\`.
+2. **Keep blockers visible.** For every item you couldn't finish (real blocker, out of scope, deferred by the user), leave it in the list with its current status and call it out explicitly in the final summary — never use \`todos: []\` or omit items to make the list look clean. The list is the source of truth; the chat is not.
+3. **Then write the summary.** Once the list matches reality, end the loop with a chat message that summarises what's done and surfaces anything still pending.
 
 Loop discipline:
 - End the turn by sending an assistant message with NO tool calls. If you have nothing to say AND nothing to do, just produce the final summary and stop — empty "checking in" messages count as ending the turn anyway.
@@ -127,7 +132,7 @@ These phases are not optional; skipping any of them is how regressions ship.
 - Inspect adjacent code. Files in the same directory usually share conventions (naming, error handling, types). Match them.
 
 ## Phase 2 — Plan
-- Before acting, write one sentence describing the change — in a brief chat line or in your thinking output if the runtime supports it. If you can't compress it to one sentence, you don't understand it well enough yet; go back to Phase 1.
+- Before acting, state the change in one sentence as a chat line: "I will [verb] [target] to [outcome]." If you can't compress it to one sentence, you don't understand it well enough yet; go back to Phase 1.
 - Example: *"I will add a TypeError check to \`_validate_numbers\` so non-numeric operands raise instead of silently coercing."*
 - Identify the blast radius:
   - Who calls the function you're changing? \`Grep\` for its name across the codebase.
@@ -181,14 +186,23 @@ const YOLO_MODE_BLOCK = `# YOLO Mode
 YOLO is currently ON. \`Write\` and \`Edit\` calls execute without per-call user confirmation. Per-call confirmation gates are reduced; the Code Working Policy phases (Understand, Plan, Act, Verify) remain mandatory. Engineering process is not what YOLO turns off.`;
 
 async function loadStaticPrompt(promptsDir) {
-  const now = Date.now();
-  if (cachedStaticPrompt && (now - cacheTimestamp) < CACHE_TTL) {
-    return cachedStaticPrompt;
-  }
-
   try {
     const files = await fs.readdir(promptsDir);
     const mdFiles = files.filter(f => f.endsWith('.md')).sort(); // Сортируем для стабильности
+
+    // Build a signature of all md files (name + mtime). If nothing changed
+    // since last call we serve from cache; otherwise we re-read from disk.
+    const stats = await Promise.all(
+      mdFiles.map(async (fileName) => {
+        const stat = await fs.stat(path.join(promptsDir, fileName));
+        return `${fileName}:${stat.mtimeMs}`;
+      })
+    );
+    const signature = stats.join('|');
+
+    if (cachedStaticPrompt && signature === cachedSignature) {
+      return cachedStaticPrompt;
+    }
 
     const sections = await Promise.all(
       mdFiles.map(async (fileName) => {
@@ -199,7 +213,7 @@ async function loadStaticPrompt(promptsDir) {
     );
 
     cachedStaticPrompt = sections.join('\n\n---\n\n');
-    cacheTimestamp = now;
+    cachedSignature = signature;
     return cachedStaticPrompt;
   } catch (e) {
     console.warn('[Prompts] Failed to load static prompts:', e.message);
