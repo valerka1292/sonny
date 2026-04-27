@@ -9,6 +9,7 @@ import { useProviders } from './hooks/useProviders';
 import { useChats } from './hooks/useChats';
 import { runAgentConversation } from './services/agentRunner';
 import { finalizeStoppedRun, reconstructLlmHistory, STOP_GENERATION_ERROR } from './services/stopFinalizer';
+import type { AskUserQuestion, AskUserQuestionAnswers } from './types/askUserQuestion';
 
 export default function App() {
   const {
@@ -45,9 +46,20 @@ export default function App() {
     toolCall: ToolCall;
     output: any;
   } | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<{
+    toolCall: ToolCall;
+    questions: AskUserQuestion[];
+  } | null>(null);
   const { activeProvider } = useProviders();
   const pendingRequestControllerRef = useRef<AbortController | null>(null);
   const confirmationResolverRef = useRef<((value: { approved: boolean; reason?: string }) => void) | null>(null);
+  // Resolver for an in-flight AskUserQuestion. Pattern mirrors the
+  // confirmation resolver: the runner awaits a Promise; we resolve it
+  // here when the user submits answers, declines, or hits Stop.
+  const questionResolverRef = useRef<
+    | ((value: { declined: false; answers: AskUserQuestionAnswers } | { declined: true; reason?: string }) => void)
+    | null
+  >(null);
   const isMountedRef = useRef(true);
 
   const handleYoloModeChange = useCallback((next: boolean) => {
@@ -77,7 +89,12 @@ export default function App() {
       confirmationResolverRef.current({ approved: false, reason: 'Request cancelled by user.' });
       confirmationResolverRef.current = null;
     }
+    if (questionResolverRef.current) {
+      questionResolverRef.current({ declined: true, reason: 'Request cancelled by user.' });
+      questionResolverRef.current = null;
+    }
     setPendingConfirmation(null);
+    setPendingQuestion(null);
   }, []);
 
   const handleStop = useCallback(async () => {
@@ -89,7 +106,15 @@ export default function App() {
       confirmationResolverRef.current({ approved: false, reason: STOP_GENERATION_ERROR });
       confirmationResolverRef.current = null;
     }
+    // Same for an in-flight AskUserQuestion: hand back declined-with-stop
+    // so the runner records a structured tool error and returns from the
+    // tool loop cleanly.
+    if (questionResolverRef.current) {
+      questionResolverRef.current({ declined: true, reason: STOP_GENERATION_ERROR });
+      questionResolverRef.current = null;
+    }
     setPendingConfirmation(null);
+    setPendingQuestion(null);
 
     // 2) Abort the network/IPC stream. From this point shouldProcessUpdate()
     //    inside agentRunner returns false, so no more setMessages will
@@ -212,6 +237,16 @@ export default function App() {
               setPendingConfirmation({ toolCall, output });
             });
           },
+          askQuestion: async (toolCall, questions) => {
+            return new Promise((resolve) => {
+              questionResolverRef.current = (answer) => {
+                questionResolverRef.current = null;
+                setPendingQuestion(null);
+                resolve(answer);
+              };
+              setPendingQuestion({ toolCall, questions });
+            });
+          },
           getContextTokens: () => contextTokensUsedRef.current,
         });
       } catch (error) {
@@ -251,6 +286,18 @@ export default function App() {
     if (!confirmationResolverRef.current) return;
     confirmationResolverRef.current({ approved: false, reason });
     confirmationResolverRef.current = null;
+  }, []);
+
+  const handleAnswerQuestion = useCallback((answers: AskUserQuestionAnswers) => {
+    if (!questionResolverRef.current) return;
+    questionResolverRef.current({ declined: false, answers });
+    questionResolverRef.current = null;
+  }, []);
+
+  const handleDeclineQuestion = useCallback(() => {
+    if (!questionResolverRef.current) return;
+    questionResolverRef.current({ declined: true, reason: 'User declined to answer the questions' });
+    questionResolverRef.current = null;
   }, []);
 
   const handleNewChat = useCallback(async () => {
@@ -305,6 +352,9 @@ export default function App() {
           pendingConfirmation={pendingConfirmation}
           onApprove={handleApproveConfirmation}
           onReject={handleRejectConfirmation}
+          pendingQuestion={pendingQuestion}
+          onAnswerQuestion={handleAnswerQuestion}
+          onDeclineQuestion={handleDeclineQuestion}
         />
 
         <InputArea
@@ -320,7 +370,7 @@ export default function App() {
           yoloMode={yoloMode}
           onYoloModeChange={handleYoloModeChange}
           activeChatId={activeChatId ?? null}
-          disabled={Boolean(pendingConfirmation)}
+          disabled={Boolean(pendingConfirmation) || Boolean(pendingQuestion)}
         />
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

@@ -14,6 +14,7 @@ require('./tools/system/ReadTool.cjs');
 require('./tools/system/WriteTool.cjs');
 require('./tools/system/EditTool.cjs');
 require('./tools/system/TodoWriteTool.cjs');
+require('./tools/system/AskUserQuestionTool.cjs');
 
 const { readTodos, writeTodos, clearTodos } = require('./tools/system/todoStore.cjs');
 

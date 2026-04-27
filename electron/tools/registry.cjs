@@ -1,6 +1,14 @@
 const { Tool } = require('./Tool.cjs');
-const { zodToJsonSchema } = require('zod-to-json-schema');
+const { z } = require('zod');
 
+// Zod 4 ships its own JSON-Schema converter. We were previously using the
+// `zod-to-json-schema` package, which silently returns `{}` for Zod 4
+// schemas — the OpenAPI 3 target hits a no-op path in the package's Zod-3
+// codepath. With an empty schema, OpenAI-compatible providers showed every
+// tool as taking no arguments, and the model was inferring shapes purely
+// from the description text. Switching to `z.toJSONSchema` produces a
+// proper structured schema, which makes calls dramatically more reliable
+// — especially for AskUserQuestion's nested questions/options shape.
 class ToolRegistry {
   constructor() {
     /** @type {Map<string, Tool>} */
@@ -28,8 +36,13 @@ class ToolRegistry {
   _serializeSchema(schema) {
     if (!schema) return { type: 'object' };
     try {
-      // openApi3 format is most compatible with OpenAI/Gemini tool calling
-      const jsonSchema = zodToJsonSchema(schema, { target: 'openApi3' });
+      // Drop the `$schema` field — OpenAI / Gemini tool-call schemas don't
+      // expect it and some providers reject unknown top-level keys.
+      const jsonSchema = z.toJSONSchema(schema);
+      if (jsonSchema && typeof jsonSchema === 'object' && '$schema' in jsonSchema) {
+        const { $schema, ...rest } = jsonSchema;
+        return rest;
+      }
       return jsonSchema;
     } catch (e) {
       console.error('[ToolRegistry] Failed to convert schema', e);

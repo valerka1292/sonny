@@ -3,6 +3,7 @@ import { executeTool, getSystemPrompt } from './toolBridge';
 import { rememberFileContent } from './streaming/oldContentCache';
 import { StreamingPreviewOrchestrator } from './streaming/streamingPreviewOrchestrator';
 import type { LlmHistoryMessage, Message, Provider, ToolCall, ToolCallStreamingPreview } from '../types';
+import type { AskUserQuestion, AskUserQuestionAnswers } from '../types/askUserQuestion';
 
 // No hard iteration cap. The agent ends its loop by emitting an assistant
 // message without tool calls; the user can interrupt at any time via the
@@ -70,6 +71,16 @@ interface RunnerParams {
   onPersist: (messages: Message[], history: LlmHistoryMessage[], tokens: number) => Promise<void>;
   onRenameChat: (title: string) => Promise<void>;
   askConfirmation: (toolCall: ToolCall, output: any) => Promise<{ approved: boolean; reason?: string }>;
+  /**
+   * Renderer-provided handler for the AskUserQuestion tool. The runner
+   * never hits IPC for this tool; it parks here until the renderer
+   * resolves with either the user's answers or `declined: true` (e.g.
+   * the user clicked Decline or Stop).
+   */
+  askQuestion: (
+    toolCall: ToolCall,
+    questions: AskUserQuestion[],
+  ) => Promise<{ declined: false; answers: AskUserQuestionAnswers } | { declined: true; reason?: string }>;
   getContextTokens: () => number;
 }
 
@@ -93,6 +104,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
     onPersist,
     onRenameChat,
     askConfirmation,
+    askQuestion,
     getContextTokens,
   } = params;
 
@@ -257,11 +269,57 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               if (!shouldProcessUpdate()) return;
               onMessages([...currentMessages]);
 
-              let args = {};
+              let args: Record<string, unknown> = {};
               try {
                 args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
               } catch (error: any) {
                 throw new Error(`Invalid JSON arguments for tool ${tc.function?.name || 'unknown'}: ${error.message}`);
+              }
+
+              // AskUserQuestion is fully user-driven: skip the IPC executeTool
+              // round-trip and ask the renderer to put up the form.
+              if (tc.function?.name === 'AskUserQuestion') {
+                const rawQuestions = (args as { questions?: unknown }).questions;
+                const questions: AskUserQuestion[] = Array.isArray(rawQuestions)
+                  ? (rawQuestions as AskUserQuestion[])
+                  : [];
+                if (questions.length === 0) {
+                  throw new Error('AskUserQuestion requires at least one question');
+                }
+                const decision = await askQuestion(tc, questions);
+                if (decision.declined === true) {
+                  const reason = decision.reason || 'User declined to answer the questions';
+                  currentMessages[tcIndexInMsg] = {
+                    ...currentMessages[tcIndexInMsg],
+                    toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map((t) =>
+                      t.index === tc.index ? { ...t, result: { status: 'error', error: reason } } : t,
+                    ),
+                  };
+                  toolResultsHistory.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: `Error: ${reason}`,
+                  });
+                } else {
+                  const finalOutput = { questions, answers: decision.answers };
+                  currentMessages[tcIndexInMsg] = {
+                    ...currentMessages[tcIndexInMsg],
+                    toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map((t) =>
+                      t.index === tc.index ? { ...t, result: { status: 'success', output: finalOutput } } : t,
+                    ),
+                  };
+                  const summary = Object.entries(decision.answers)
+                    .map(([q, a]) => `"${q}" → "${a}"`)
+                    .join('; ');
+                  toolResultsHistory.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: `User answered: ${summary || '(no answers)'}`,
+                  });
+                }
+                if (!shouldProcessUpdate()) return;
+                onMessages([...currentMessages]);
+                continue;
               }
 
               const output = await executeTool(tc.function!.name!, args, { chatId });
