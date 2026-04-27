@@ -1,13 +1,24 @@
 const path = require('path');
+const fsSync = require('fs');
 const fs = require('fs/promises');
 
 function checkPathInSandbox(userPath, cwd) {
   const resolved = path.resolve(cwd, userPath || '.');
-  const sandboxRoot = path.resolve(cwd);
-  if (!resolved.startsWith(sandboxRoot + path.sep) && resolved !== sandboxRoot) {
-    throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
+  const sandboxRoot = fsSync.realpathSync(cwd);
+  try {
+    const realTarget = fsSync.realpathSync(resolved);
+    if (!realTarget.startsWith(sandboxRoot + path.sep) && realTarget !== sandboxRoot) {
+      throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
+    }
+    return realTarget;
+  } catch {
+    const parentDir = path.dirname(resolved);
+    const realParentDir = fsSync.realpathSync(parentDir);
+    if (!realParentDir.startsWith(sandboxRoot + path.sep) && realParentDir !== sandboxRoot) {
+      throw new Error(`Access denied: path '${userPath}' is outside the sandbox.`);
+    }
+    return resolved;
   }
-  return resolved;
 }
 
 async function fileStatSafe(filePath) {
