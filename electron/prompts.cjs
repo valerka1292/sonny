@@ -269,8 +269,16 @@ async function buildDynamicContext(cwd, chatId, yoloMode) {
 
   lines.push(
     '',
-    '## Empty input handling',
-    'If the user\'s latest message is empty or contains only whitespace, do NOT initiate tool calls. Reply with a brief status line (working directory, active todo summary, anything in flight) and wait for instruction.',
+    '## Input handling',
+    '',
+    '- **Empty / whitespace-only message:** do NOT initiate tool calls. Reply with one short status line (working directory, active todo summary, anything in flight) and wait for instruction.',
+    '- **Continuation signals** — a single short word or phrase that means "keep going" (e.g. `ok`, `go`, `continue`, `proceed`, `next`, `да`, `продолжай`, `дальше`, `хорошо`, `好`): treat as confirmation to resume the current plan. Pick up from the next `pending` / `in_progress` todo and act. Do not re-explain the plan first.',
+    '- **Single non-continuation word:** if you cannot tell what the user wants from one word, ask for clarification in one sentence — do not start tool calls speculatively.',
+    '- **Empty input while there is no active work:** treat as the user idling; reply with a brief greeting / status and wait. Do not invent a task.',
+    '',
+    '## Language',
+    '',
+    'Respond in the same language as the user\'s most recent message. If the message mixes languages, default to the dominant language of that message; quoted code, file paths, error messages, identifiers, and tool calls always stay in their original form. Do not translate code, command names, or schema field names.',
   );
 
   lines.push('', '---');
