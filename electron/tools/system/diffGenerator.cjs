@@ -1,39 +1,67 @@
-const diff = require('diff');
+const path = require('path');
+const { Worker } = require('worker_threads');
 
-function generateDiffHunks(oldStr, newStr) {
-  const patch = diff.structuredPatch('', '', oldStr, newStr, '', '', { context: 3 });
+function generateDiffHunks(oldStr, newStr, options = {}) {
+  const { signal, timeoutMs = 30000 } = options;
 
-  return patch.hunks.map((hunk) => {
-    let oldLine = hunk.oldStart;
-    let newLine = hunk.newStart;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, 'diffWorker.cjs'));
+    let settled = false;
 
-    const lines = hunk.lines.map((line) => {
-      const prefix = line[0];
-      const content = line.slice(1);
-      const isAddition = prefix === '+';
-      const isDeletion = prefix === '-';
+    let timeoutId = null;
 
-      const result = {
-        type: isAddition ? 'addition' : isDeletion ? 'deletion' : 'context',
-        content,
-        oldLine: isAddition ? null : oldLine,
-        newLine: isDeletion ? null : newLine,
-      };
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      if (timeoutId) clearTimeout(timeoutId);
+      worker.removeAllListeners();
+      worker.terminate().catch(() => {});
+    };
 
-      if (!isAddition) oldLine += 1;
-      if (!isDeletion) newLine += 1;
+    const finish = (fn) => (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    };
 
-      return result;
+    const rejectOnce = finish(reject);
+    const resolveOnce = finish(resolve);
+
+    const onAbort = () => {
+      worker.terminate().catch(() => {});
+      rejectOnce(new Error('Diff generation aborted'));
+    };
+
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+
+    timeoutId = setTimeout(() => {
+      worker.terminate().catch(() => {});
+      rejectOnce(new Error(`Diff generation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    worker.on('message', (payload) => {
+      if (payload && payload.error) {
+        rejectOnce(new Error(payload.error));
+        return;
+      }
+      resolveOnce(payload?.hunks || []);
     });
 
-    return {
-      header: hunk.lines.length > 0 ? `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@` : '',
-      oldStart: hunk.oldStart,
-      oldLines: hunk.oldLines,
-      newStart: hunk.newStart,
-      newLines: hunk.newLines,
-      lines,
-    };
+    worker.on('error', (error) => {
+      rejectOnce(error);
+    });
+
+    worker.on('exit', (code) => {
+      if (!settled && code !== 0) {
+        rejectOnce(new Error(`Diff worker exited with code ${code}`));
+      }
+    });
+
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    worker.postMessage({ oldStr, newStr });
   });
 }
 

@@ -61,11 +61,11 @@ Usage:
     const { cwd } = context;
     const fullFilePath = checkPathInSandbox(input.file_path, cwd);
 
-    await fs.mkdir(path.dirname(fullFilePath), { recursive: true });
+    await fs.mkdir(path.dirname(fullFilePath), { recursive: true, signal: context.signal });
 
     let oldContent = null;
     try {
-      oldContent = await fs.readFile(fullFilePath, 'utf-8');
+      oldContent = await fs.readFile(fullFilePath, { encoding: 'utf-8', signal: context.signal });
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
@@ -75,19 +75,21 @@ Usage:
       if (!lastRead) {
         throw new Error('File has not been read yet. Use the Read tool to read it first.');
       }
-      const stat = await fs.stat(fullFilePath);
+      const stat = await fs.stat(fullFilePath, { signal: context.signal });
       if (stat.mtimeMs > lastRead.timestamp) {
         throw new Error('File has been modified since it was read. Read it again before attempting to write.');
       }
     }
 
     const type = oldContent === null ? 'create' : 'update';
-    const structuredPatch = oldContent === null ? [] : generateDiffHunks(oldContent, input.content);
+    const structuredPatch = oldContent === null
+      ? []
+      : await generateDiffHunks(oldContent, input.content, { signal: context.signal, timeoutMs: context.timeoutMs });
     const relativePath = toRelativePath(fullFilePath, cwd);
     const shouldApply = Boolean(input.apply);
 
     if (shouldApply) {
-      await atomicWriteFile(fullFilePath, input.content);
+      await atomicWriteFile(fullFilePath, input.content, { signal: context.signal });
       readFileState.set(fullFilePath, {
         content: input.content,
         timestamp: Date.now(),
