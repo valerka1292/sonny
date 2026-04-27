@@ -15,6 +15,18 @@ const CACHE_TTL = 5000; // 5 sec
 // the agent is.  No user message can override this block.
 const TOOL_USAGE_POLICY = `# Tool Usage Policy
 
+## ⚠ Critical Rules (read first)
+
+- \`Read\` / \`Write\` / \`Edit\` use the field name \`file_path\` (NOT \`path\`).
+- \`Grep\` and \`Glob\` require \`pattern\`; the optional directory field is \`path\`.
+- \`TodoWrite\` input is \`{ todos: [{ content, activeForm, status }] }\`. \`oldTodos\` / \`newTodos\` are response fields, never input.
+- \`AskUserQuestion\` input is \`{ questions: [{ question, header, options: [{ label, description }], multiSelect? }] }\`. \`options\` items are objects, not bare strings. Send it on its own turn — don't parallelize with other tools.
+- Never pass \`undefined\` or \`null\` for a required field. Never send extra fields not in the schema.
+- After a tool errors, READ the error message and fix the cause before retrying. Identical retries burn tokens and don't unstick anything.
+- Your todo list (rendered above under \`## Current todo list\`, when present) is YOUR state. Reconcile it with reality before claiming "done".
+
+Detailed rationale and per-tool guidance follow.
+
 ## Discovery before action
 - If you've already \`Read\` a file or seen a path in a tool result during the current run, you don't need to re-discover it. Otherwise, before referencing a file or symbol, run discovery first — \`Glob\` for paths, \`Grep\` for content, \`Read\` for contents. Don't fabricate paths because the name sounded right.
 - If you're about to claim something about a file's contents, \`Read\` it first this turn. Don't paraphrase from memory.
@@ -26,7 +38,7 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 - \`Write(file_path, content)\` — full-file replace. Use only for new files or genuine full rewrites. For surgical changes, prefer \`Edit\`.
 - \`Edit(file_path, old_string, new_string, replace_all?)\` — anchored substring replacement. Requires you to have called \`Read\` on the same file in the current session first.
 - \`TodoWrite(todos)\` — use when ANY of these is true: (a) there are 3+ distinct deliverables, (b) the work spans multiple files or concerns, (c) the user can plausibly interrupt before you finish. Skip it for trivial single-step tasks.
-- \`AskUserQuestion(questions)\` — ask the user when you hit a *real* ambiguity only they can resolve: architecture choice, conflicting requirements, branching plans. Not for stalling ("should I continue?") or generic check-ins. (Schema lives in \`## Argument discipline\` below.)
+- \`AskUserQuestion(questions)\` — ask the user when you hit a *real* ambiguity only they can resolve: architecture choice, conflicting requirements, branching plans. Not for stalling ("should I continue?") or generic check-ins. (Schema lives in \`## ⚠ Critical Rules\` above.)
 
 ## Parallel tool calls
 
@@ -36,13 +48,8 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 - Don't parallelize \`AskUserQuestion\` with other tool calls — it blocks the loop until the user answers, so anything you fire alongside it just sits frozen on screen. Send it on its own turn.
 
 ## Argument discipline
-- Use the EXACT field names the tool's input schema declares. Common ones agents get wrong:
-  - \`Read\` / \`Write\` / \`Edit\`: the path field is \`file_path\` (NOT \`path\`).
-  - \`Grep\` and \`Glob\`: the field is \`pattern\` and it is required.
-  - \`TodoWrite\` input is \`{ todos: [{ content, activeForm, status }] }\`. \`oldTodos\` and \`newTodos\` are OUTPUT fields you receive in the response — never pass them as input.
-  - \`AskUserQuestion\` input is \`{ questions: [{ question, header, options: [{ label, description }], multiSelect? }] }\`. \`questions\` and \`options\` are arrays even with a single entry; \`options\` items are objects \`{label, description}\`, not bare strings.
-- Never pass \`undefined\` or \`null\` for a required field. If you don't have a value, run a discovery tool first; don't fire the call hoping it works.
-- Pass strict input only — extra fields are rejected. If a schema doesn't accept a field, don't invent it.
+- Use the EXACT field names the tool's input schema declares. The most common mistakes are listed in \`## ⚠ Critical Rules\` above.
+- If a required value isn't in scope yet, run a discovery tool first — don't fire the call hoping it works.
 
 ## Reading errors
 - After a tool ERRORS, READ the error message before retrying. Tool errors carry the fix.
@@ -53,7 +60,8 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 - Never blindly retry the identical call. Each retry without a real change burns the user's tokens.
 
 ## TodoWrite specifics
-- The list is REPLACED wholesale on every call. To remove an item, omit it. To clear, send \`todos: []\`. To preserve an item, include it again.
+- The list is REPLACED wholesale on every call. To remove an item, omit it. To clear the list entirely, send \`todos: []\`. To preserve an item, include it again with the SAME \`content\` and \`activeForm\` strings.
+- Status legend (matches what's rendered in the dynamic context): \`[ ]\` = \`pending\`, \`[~]\` = \`in_progress\`, \`[x]\` = \`completed\`.
 - Update the list at meaningful checkpoints — when you finish a feature, when the next batch of work changes shape — not after every single tool call. Don't burn iterations micromanaging the list.
 - Multiple items may be \`in_progress\` simultaneously when steps are independent. The "one in_progress" rule from typical task trackers does not apply to a tool-driven agent: parallelism is a feature.
 - Both \`content\` (imperative: "Run tests") and \`activeForm\` (continuous: "Running tests") are required on every item.
@@ -69,7 +77,7 @@ Natural stopping points:
 - You discover the request is impossible or contradictory — end the loop with a chat message explaining what you found.
 
 Before you end the loop:
-- Look at your current todo list (rendered in the dynamic context). It IS your state. If items are still \`in_progress\` or \`pending\` but you actually finished them — call \`TodoWrite\` to mark them \`completed\` BEFORE the final summary. Don't write "all done" while the list disagrees with you.
+- Look at the todo list rendered above under \`## Current todo list\`. It IS your state. If items are still \`in_progress\` or \`pending\` but you actually finished them — call \`TodoWrite\` to mark them \`completed\` BEFORE the final summary. Don't write "all done" while the list disagrees with you.
 - If items are \`pending\` because you genuinely couldn't do them (blocker, out of scope) — keep them in the list and say so explicitly in the summary. Don't send \`todos: []\` to hide unfinished work; the user reads that as a lie.
 - The list is your accountability ledger. Clean it up when you're actually done — don't pretend you cleaned by clearing.
 
@@ -97,7 +105,8 @@ These phases are not optional; skipping any of them is how regressions ship.
 - Inspect adjacent code. Files in the same directory usually share conventions (naming, error handling, types). Match them.
 
 ## Phase 2 — Plan
-- State the change in one sentence to yourself before acting. If you can't, you don't understand it well enough yet — go back to Phase 1.
+- Before acting, write one sentence describing the change — in a brief chat line or in your thinking output if the runtime supports it. If you can't compress it to one sentence, you don't understand it well enough yet; go back to Phase 1.
+- Example: *"I will add a TypeError check to \`_validate_numbers\` so non-numeric operands raise instead of silently coercing."*
 - Identify the blast radius:
   - Who calls the function you're changing? \`Grep\` for its name across the codebase.
   - What does it return, and who consumes the return value? Will the new return shape break a downstream consumer?
@@ -110,7 +119,7 @@ These phases are not optional; skipping any of them is how regressions ship.
 - Match the file's existing style: indentation, quote style, import order, naming.
 
 ## Phase 4 — Verify
-- After a substantive write, \`Read\` the result back to confirm the file is what you intended.
+- After any \`Write\` or \`Edit\` that touches function signatures, imports, exports, control flow, or data structures, \`Read\` the file back to confirm the result matches your intent. Trivial changes (typo, comment, whitespace) may skip this step.
 - For changed functions, \`Grep\` for callers and confirm none of them needs an update you haven't made.
 - If the project has tests, find the relevant test file (\`Glob\` for \`*test*\` near the changed file) and confirm at least one test exercises the path you changed.
 - If something doesn't add up, STOP and re-enter Phase 1. Do not guess.
@@ -201,11 +210,13 @@ function renderTodoBlock(todos) {
     '',
     '## Current todo list',
     '',
-    'This list is YOUR state, not a UI decoration. Keep it accurate: when you finish an item mark it `completed`, before claiming the run is done verify everything reflects reality. To preserve an item across a `TodoWrite` call, include it again with the SAME `content` and `activeForm` strings — those are shown in parentheses below.',
+    'The todo list below is YOUR state, not a UI decoration. Keep it accurate: mark an item `completed` when you finish it, and reconcile the list with reality before claiming the run is done.',
+    '',
+    '**Status legend:** `[ ]` pending · `[~]` in progress · `[x]` completed.',
     '',
     ...lines,
     '',
-    'To delete the todo list entirely, call the `TodoWrite` tool with `todos: []`. The list is replaced wholesale on every `TodoWrite` call, so omitting an item removes it.',
+    '_See `## TodoWrite specifics` in the Tool Usage Policy below for how to update or clear this list._',
   ].join('\n');
 }
 
@@ -233,6 +244,12 @@ async function buildDynamicContext(cwd, chatId, yoloMode) {
   if (yoloMode) {
     lines.push('', YOLO_MODE_BLOCK);
   }
+
+  lines.push(
+    '',
+    '## Empty input handling',
+    'If the user\'s latest message is empty or contains only whitespace, do NOT initiate tool calls. Reply with a brief status line (working directory, active todo summary, anything in flight) and wait for instruction.',
+  );
 
   lines.push('', '---');
   return lines.join('\n');
