@@ -3,7 +3,7 @@ const { registry } = require('../registry.cjs');
 const { z } = require('zod');
 const path = require('path');
 const fs = require('fs/promises');
-const { checkPathInSandbox, atomicWriteFile, toRelativePath } = require('../utils/sandbox.cjs');
+const { checkProjectFilePath, atomicWriteFile, toRelativePath } = require('../utils/sandbox.cjs');
 const { generateDiffHunks } = require('./diffGenerator.cjs');
 const { readFileState } = require('./readFileState.cjs');
 
@@ -11,10 +11,11 @@ class WriteTool extends Tool {
   constructor() {
     super();
     this.name = 'Write';
-    this.description = `Writes a file to the local filesystem.
+    this.description = `Writes a file inside the current sandbox branch.
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path.
+- The path must include a project folder, e.g. "project-name/file.ext". Direct files in the branch root are rejected.
 - If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
 - Prefer the Edit tool for modifying existing files — it only sends the diff. Only use this tool to create new files or for complete rewrites.
 - NEVER create documentation files (*.md) or README files unless explicitly requested by the User.
@@ -22,7 +23,7 @@ Usage:
     this.mode = 'rw';
 
     this.inputSchema = z.strictObject({
-      file_path: z.string().describe('Absolute or relative path to the file to write. Must be inside the sandbox.'),
+      file_path: z.string().describe('Absolute or relative path to the file to write. Must be inside the current branch and include a project folder, e.g. "project-name/file.ext".'),
       content: z.string().describe('The content to write to the file.'),
       apply: z.boolean().optional().describe('Internal flag. When true, commits the prepared write to disk.'),
     });
@@ -60,7 +61,7 @@ Usage:
   async execute(rawInput, context) {
     const input = this.inputSchema.parse(rawInput);
     const { cwd } = context;
-    const fullFilePath = checkPathInSandbox(input.file_path, cwd);
+    const fullFilePath = checkProjectFilePath(input.file_path, cwd);
 
     await fs.mkdir(path.dirname(fullFilePath), { recursive: true, signal: context.signal });
 

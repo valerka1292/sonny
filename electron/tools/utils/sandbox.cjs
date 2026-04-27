@@ -18,6 +18,20 @@ function checkPathInSandbox(userPath, cwd) {
   return targetPath;
 }
 
+function checkProjectFilePath(userPath, cwd) {
+  const targetPath = checkPathInSandbox(userPath, cwd);
+  const relative = path.relative(path.resolve(cwd), targetPath);
+  const parts = relative.split(path.sep).filter(Boolean);
+
+  if (relative === '' || relative === '.' || parts.length < 2) {
+    throw new Error(
+      `Project files must live inside a project folder in the current branch. Use a path like "project-name/file.ext", not "${userPath || '.'}".`,
+    );
+  }
+
+  return targetPath;
+}
+
 async function fileStatSafe(filePath) {
   try {
     const stat = await fs.stat(filePath);
@@ -83,6 +97,7 @@ function extractGlobBaseDirectory(pattern) {
 
 module.exports = {
   checkPathInSandbox,
+  checkProjectFilePath,
   fileStatSafe,
   toRelativePath,
   extractGlobBaseDirectory,

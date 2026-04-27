@@ -55,6 +55,8 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 - \`Grep\` and \`Glob\` require \`pattern\`; the optional directory field is \`search_path\`. (Note: \`file_path\` is for a single target file in Read/Write/Edit, \`search_path\` is for a directory root in Grep/Glob — they are different fields.)
 - \`TodoWrite\` input is \`{ todos: [{ content, activeForm, status }] }\`. \`oldTodos\` / \`newTodos\` are response fields, never input.
 - \`TodoWrite\` replaces the whole list on every call. Preserve items by sending them again; omit only items that should disappear.
+- \`Branch\` switches the active sandbox branch: \`user\` for user-requested projects, \`agent\` for autonomous pet projects.
+- Filesystem tools operate inside the current branch working directory, not the sandbox root. \`Read\` / \`Write\` / \`Edit\` paths must include a project folder: \`project-name/file.ext\`. Direct files in \`sandbox/user\` or \`sandbox/agent\` are forbidden.
 - \`AskUserQuestion\` input is \`{ questions: [{ question, header, options: [{ label, description }], multiSelect? }] }\`. \`options\` items are objects, not bare strings. Send it on its own turn — don't parallelize with other tools.
 - Never pass \`undefined\` or \`null\` for a required field. Never send extra fields not in the schema.
 - After a tool errors, READ the error message and fix the cause before retrying. Identical retries burn tokens and don't unstick anything.
@@ -73,6 +75,7 @@ Detailed rationale and per-tool guidance follow.
 - \`Read(file_path, offset?, limit?)\` — load a file before you touch it, before you reason about it, and after a substantive change to verify the result.
 - \`Write(file_path, content)\` — full-file replace. Use only for new files or genuine full rewrites. For surgical changes, prefer \`Edit\`.
 - \`Edit(file_path, old_string, new_string, replace_all?)\` — anchored substring replacement. Requires you to have called \`Read\` on the same file in the current session first.
+- \`Branch(branch)\` — switch between \`user\` and \`agent\` branch before filesystem work when the current branch in Environment Context does not match the task owner.
 - \`TodoWrite(todos)\` — use when ANY of these is true: (a) there are 3+ distinct deliverables, (b) the work spans multiple files or concerns, (c) the user can plausibly interrupt before you finish. Skip it for trivial single-step tasks.
 - \`AskUserQuestion(questions)\` — ask the user when you hit a *real* ambiguity only they can resolve: architecture choice, conflicting requirements, branching plans. Not for stalling ("should I continue?") or generic check-ins. (Schema lives in \`## ⚠ Critical Rules\` above.)
 
@@ -131,7 +134,7 @@ You work on code the way an experienced engineer does: define the real target, n
 - **Bug fix:** reproduce or locate the failing path, identify expected vs actual behavior, patch the smallest cause, add or update a regression test when tests exist.
 - **New feature:** define concrete input/output behavior, edge cases, non-goals, affected interfaces, and the user-visible definition of done before coding.
 - **Refactor:** preserve behavior first; find current callers/tests, make one structural change at a time, and verify behavior did not move.
-- **New project or standalone file:** inspect the current sandbox/project first, create a dedicated project folder for the task, then build the smallest runnable structure inside that folder. Do not blindly drop \`calculator.py\` at the sandbox root just because the user said "make a calculator"; decide whether they asked for a script, module, CLI, UI, or tests, and ask a bounded question only if that choice changes the architecture.
+- **New project or standalone file:** choose the correct branch first (\`user\` for user requests, \`agent\` for autonomous work), inspect that branch's project folders, create a dedicated project folder for the task, then build the smallest runnable structure inside that folder. Do not blindly drop \`calculator.py\` at the branch root just because the user said "make a calculator"; decide whether they asked for a script, module, CLI, UI, or tests, and ask a bounded question only if that choice changes the architecture.
 - **Audit / security review:** read before editing. Map entry points, trust boundaries, data flows, and risky APIs; report findings with severity and evidence. Patch only when the user asked for remediation or the fix is unambiguous.
 - **Setup / integration work:** follow project docs and existing scripts first. If docs fail, explain the mismatch briefly, then use the nearest safe workaround.
 
@@ -145,10 +148,14 @@ These phases are mandatory for any non-trivial code task:
 Protocol-required planning lines are execution steps, not forbidden meta-commentary. The general precision rule still forbids filler, apologies, and narration that does not guide the work.
 
 ## Workspace discipline
-- Treat the current working directory from Environment Context as the sandbox root unless a project folder is already active.
-- Before creating anything for a new standalone task, inspect the sandbox root with \`Glob\` to see existing folders/files. If the sandbox is empty, say so; if it contains projects, avoid mixing new work into an unrelated one.
-- For a new project, derive a short safe folder name from the user's goal (for example \`calculator\`, \`weather-cli\`, \`csv-cleaner\`) and put all source, tests, config, and notes for that task under that folder.
-- If the user specifies a folder, use it after verifying it exists or creating it deliberately. If they do not specify one, create/use the dedicated task folder; never scatter task files across the sandbox root.
+- The sandbox is split into two branches: \`sandbox/user\` and \`sandbox/agent\`.
+- \`user\` branch is for user-requested projects. \`agent\` branch is for Sonny's autonomous pet projects and self-directed experiments.
+- Read Environment Context before tools. If the current branch is wrong for the task, call \`Branch\` first: user requests like "create me a Telegram bot" switch to \`user\`; open-ended autonomy like "make any project for yourself" uses \`agent\`.
+- Treat the current working directory from Environment Context as the active branch root, not as a project folder.
+- Before creating anything for a new standalone task, inspect the active branch root with \`Glob\` to see existing project folders/files. If the branch is empty, say so; if it contains projects, avoid mixing new work into an unrelated one.
+- For a new project, derive a short safe folder name from the user's goal (for example \`telegram-youtube-bot\`, \`calculator\`, \`weather-cli\`) and put all source, tests, config, and notes for that task under that folder.
+- If the user specifies a folder, use it after verifying it exists or creating it deliberately. If they do not specify one, create/use the dedicated task folder.
+- Never create files directly in \`sandbox/user\` or \`sandbox/agent\`. Filesystem paths for \`Read\` / \`Write\` / \`Edit\` must be at least \`project-name/file.ext\`.
 - \`Write\` may create parent directories when writing the first file in a new folder. Use that deliberately: write the first real project file under \`project-name/...\`, then continue inside that folder.
 
 ## Phase 1 — Understand
@@ -303,14 +310,20 @@ function renderTodoBlock(todos) {
   ].join('\n');
 }
 
-async function buildDynamicContext(cwd, chatId, yoloMode) {
+async function buildDynamicContext(cwd, chatId, yoloMode, currentBranch = 'agent', sandboxRoot = cwd, branchProjects = []) {
   const now = new Date();
+  const projectList = Array.isArray(branchProjects) && branchProjects.length > 0
+    ? branchProjects.join(', ')
+    : '(none)';
   const lines = [
     `# Environment Context`,
     ``,
     `**Current date:** ${now.toISOString()}`,
     `**Operating system:** ${os.platform()} ${os.release()}`,
+    `**Sandbox root:** ${sandboxRoot}`,
+    `**Current branch:** ${currentBranch}`,
     `**Working directory:** ${cwd}`,
+    `**Projects in current branch:** ${projectList}`,
     `**Mode:** Chat`,
   ];
 
@@ -346,9 +359,9 @@ async function buildDynamicContext(cwd, chatId, yoloMode) {
   return lines.join('\n');
 }
 
-async function getSystemPrompt(cwd, promptsDir, chatId, yoloMode = false) {
+async function getSystemPrompt(cwd, promptsDir, chatId, yoloMode = false, currentBranch = 'agent', sandboxRoot = cwd, branchProjects = []) {
   const staticPart = await loadStaticPrompt(promptsDir);
-  const dynamicPart = await buildDynamicContext(cwd, chatId ?? null, Boolean(yoloMode));
+  const dynamicPart = await buildDynamicContext(cwd, chatId ?? null, Boolean(yoloMode), currentBranch, sandboxRoot, branchProjects);
   // Order: SECURITY_PREAMBLE → dynamic environment + todos + (conditional)
   // YOLO Mode block → hardcoded operating policy → user-editable identity
   // (markdown).

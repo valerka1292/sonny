@@ -3,7 +3,7 @@ const { registry } = require('../registry.cjs');
 const { z } = require('zod');
 const path = require('path');
 const fs = require('fs/promises');
-const { checkPathInSandbox, toRelativePath } = require('../utils/sandbox.cjs');
+const { checkProjectFilePath, toRelativePath } = require('../utils/sandbox.cjs');
 const { readFileState } = require('./readFileState.cjs');
 
 const MAX_SIZE_BYTES = 256 * 1024;
@@ -16,11 +16,11 @@ class ReadTool extends Tool {
   constructor() {
     super();
     this.name = 'Read';
-    this.description = 'Read a text file from the local sandbox filesystem.';
+    this.description = 'Read a text file from the current sandbox branch. Paths must include a project folder.';
     this.mode = 'ro';
 
     this.inputSchema = z.strictObject({
-      file_path: z.string().describe('Absolute or relative path to the file. Must be inside the sandbox.'),
+      file_path: z.string().describe('Absolute or relative path to the file. Must be inside the current branch and include a project folder, e.g. "project-name/file.ext".'),
       offset: z.number().int().min(1).optional().describe('Line number to start reading from (1-indexed).'),
       limit: z.number().int().min(1).optional().describe('Maximum number of lines to read.'),
     });
@@ -36,7 +36,7 @@ class ReadTool extends Tool {
 
   async execute(input, context) {
     const { cwd } = context;
-    const absolutePath = checkPathInSandbox(input.file_path, cwd);
+    const absolutePath = checkProjectFilePath(input.file_path, cwd);
 
     const ext = path.extname(absolutePath).toLowerCase();
     if (BINARY_EXTENSIONS.has(ext)) {
