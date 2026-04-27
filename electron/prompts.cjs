@@ -17,8 +17,8 @@ const TOOL_USAGE_POLICY = `# Tool Usage Policy
 
 ## ⚠ Critical Rules (read first)
 
-- \`Read\` / \`Write\` / \`Edit\` use the field name \`file_path\` (NOT \`path\`).
-- \`Grep\` and \`Glob\` require \`pattern\`; the optional directory field is \`path\`.
+- \`Read\` / \`Write\` / \`Edit\` use the field name \`file_path\` for the target file.
+- \`Grep\` and \`Glob\` require \`pattern\`; the optional directory field is \`search_path\`. (Note: \`file_path\` is for a single target file in Read/Write/Edit, \`search_path\` is for a directory root in Grep/Glob — they are different fields.)
 - \`TodoWrite\` input is \`{ todos: [{ content, activeForm, status }] }\`. \`oldTodos\` / \`newTodos\` are response fields, never input.
 - \`AskUserQuestion\` input is \`{ questions: [{ question, header, options: [{ label, description }], multiSelect? }] }\`. \`options\` items are objects, not bare strings. Send it on its own turn — don't parallelize with other tools.
 - Never pass \`undefined\` or \`null\` for a required field. Never send extra fields not in the schema.
@@ -32,8 +32,8 @@ Detailed rationale and per-tool guidance follow.
 - If you're about to claim something about a file's contents, \`Read\` it first this turn. Don't paraphrase from memory.
 
 ## Choosing the right tool
-- \`Glob(pattern, path?)\` — locate files by name pattern (e.g. \`**/*.ts\`). Use it to navigate structure: *"where do the test files live?"*, *"is there an existing config file?"*. Cheap; use it freely before assuming structure.
-- \`Grep(pattern, path?, glob_pattern?)\` — search file *contents*. Use it to find usages: *"who calls this function?"*, *"where is this constant defined?"*. Run it BEFORE editing a function to find every caller.
+- \`Glob(pattern, search_path?)\` — locate files by name pattern (e.g. \`**/*.ts\`). Use it to navigate structure: *"where do the test files live?"*, *"is there an existing config file?"*. Cheap; use it freely before assuming structure.
+- \`Grep(pattern, search_path?, glob?)\` — search file *contents*. Use it to find usages: *"who calls this function?"*, *"where is this constant defined?"*. Run it BEFORE editing a function to find every caller.
 - \`Read(file_path, offset?, limit?)\` — load a file before you touch it, before you reason about it, and after a substantive change to verify the result.
 - \`Write(file_path, content)\` — full-file replace. Use only for new files or genuine full rewrites. For surgical changes, prefer \`Edit\`.
 - \`Edit(file_path, old_string, new_string, replace_all?)\` — anchored substring replacement. Requires you to have called \`Read\` on the same file in the current session first.
