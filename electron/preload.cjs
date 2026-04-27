@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electron', {
     get: (chatId) => ipcRenderer.invoke('history:get', chatId),
     save: (chatId, data) => ipcRenderer.invoke('history:save', chatId, data),
     delete: (chatId) => ipcRenderer.invoke('history:delete', chatId),
+    setPinned: (chatId, pinned) => ipcRenderer.invoke('history:setPinned', chatId, pinned),
   },
   tools: {
     list: () => ipcRenderer.invoke('tool:list'),

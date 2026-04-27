@@ -42,4 +42,5 @@ export const chatDataSchema = z.object({
   messages: z.array(storedMessageSchema),
   llmHistory: z.array(llmHistorySchema),
   contextTokensUsed: z.number().nonnegative(),
+  pinned: z.boolean().optional(),
 });

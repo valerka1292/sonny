@@ -6,6 +6,7 @@ export interface ChatStorage {
   get: (chatId: string) => Promise<ChatData | null>;
   save: (chatId: string, data: ChatData) => Promise<ChatSession[]>;
   delete: (chatId: string) => Promise<ChatSession[]>;
+  setPinned: (chatId: string, pinned: boolean) => Promise<ChatSession[]>;
 }
 
 export interface ProviderStorage {

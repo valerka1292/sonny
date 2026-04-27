@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Plus, Settings, Trash2 } from 'lucide-react';
+import { MessageSquare, Pin, PinOff, Plus, Settings, Trash2 } from 'lucide-react';
 import { ChatSession } from '../types';
 import { cn } from '../lib/utils';
 import { groupChatsByDate } from '../utils/chatGrouping';
@@ -11,6 +11,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
+  onTogglePin: (chatId: string, pinned: boolean) => void;
   onSettingsOpen: () => void;
 }
 
@@ -21,6 +22,7 @@ export default function Sidebar({
   onNewChat,
   onSelectChat,
   onDeleteChat,
+  onTogglePin,
   onSettingsOpen,
 }: SidebarProps) {
   const groupedChats = React.useMemo(() => groupChatsByDate(chats), [chats]);
@@ -33,43 +35,61 @@ export default function Sidebar({
     return (
       <div className="mb-2">
         <div className="first:pt-0 px-3 pb-2 pt-4 text-xs font-medium text-text-secondary">{title}</div>
-        {groupChats.map((chat) => (
-          <div
-            key={chat.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelectChat(chat.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onSelectChat(chat.id);
-              }
-            }}
-            className={cn(
-              'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] outline-none transition-colors',
-              'focus-visible:ring-2 focus-visible:ring-white/20',
-              activeChatId === chat.id
-                ? 'bg-bg-3 text-text-primary'
-                : 'text-text-secondary hover:bg-bg-2 hover:text-text-primary',
-            )}
-          >
-            <MessageSquare size={14} className="flex-shrink-0 opacity-60" />
-            <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+        {groupChats.map((chat) => {
+          const isPinned = chat.pinned === true;
+          return (
+            <div
+              key={chat.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectChat(chat.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectChat(chat.id);
+                }
+              }}
+              className={cn(
+                'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] outline-none transition-colors',
+                'focus-visible:ring-2 focus-visible:ring-white/20',
+                activeChatId === chat.id
+                  ? 'bg-bg-3 text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-2 hover:text-text-primary',
+              )}
+            >
+              {isPinned ? (
+                <Pin size={14} className="flex-shrink-0 -rotate-45 text-amber-400" />
+              ) : (
+                <MessageSquare size={14} className="flex-shrink-0 opacity-60" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{chat.title}</span>
 
-            <div className="relative z-10 ml-auto hidden items-center gap-0.5 group-hover:flex">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteChat(chat.id);
-                }}
-                className="rounded p-1.5 text-text-secondary transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-                aria-label="Delete chat"
-              >
-                <Trash2 size={14} />
-              </button>
+              <div className="relative z-10 ml-auto hidden items-center gap-0.5 group-hover:flex">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePin(chat.id, !isPinned);
+                  }}
+                  className="rounded p-1.5 text-text-secondary transition-colors hover:bg-amber-500/10 hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                  aria-label={isPinned ? 'Unpin chat' : 'Pin chat'}
+                  title={isPinned ? 'Unpin chat' : 'Pin chat'}
+                >
+                  {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteChat(chat.id);
+                  }}
+                  className="rounded p-1.5 text-text-secondary transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                  aria-label="Delete chat"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -103,6 +123,7 @@ export default function Sidebar({
           </div>
         ) : (
           <>
+            {renderChatGroup('Pinned', groupedChats.pinned)}
             {renderChatGroup('Today', groupedChats.today)}
             {renderChatGroup('Yesterday', groupedChats.yesterday)}
             {renderChatGroup('Previous 7 Days', groupedChats.week)}
