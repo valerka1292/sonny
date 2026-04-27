@@ -91,7 +91,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
   const shouldProcessUpdate = () =>
     isMountedRef.current && !requestController.signal.aborted && activeChatIdRef.current === chatId;
 
-  const systemPromptText = await getSystemPrompt();
+  const systemPromptText = await getSystemPrompt(chatId);
   const toolDefinitions = await getToolDefinitions();
 
   let toolIteration = 0;
@@ -253,7 +253,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
                 throw new Error(`Invalid JSON arguments for tool ${tc.function?.name || 'unknown'}: ${error.message}`);
               }
 
-              const output = await executeTool(tc.function!.name!, args);
+              const output = await executeTool(tc.function!.name!, args, { chatId });
               const toolDef = toolDefinitions.find((t) => t.function?.name === tc.function?.name);
               const toolMode = toolDef?.mode ?? 'ro';
 
@@ -288,7 +288,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
                   const committedOutput = await executeTool(tc.function!.name!, {
                     ...args,
                     apply: true,
-                  });
+                  }, { chatId });
 
                   if (committedOutput?.filePath && typeof committedOutput.content === 'string') {
                     rememberFileContent(committedOutput.filePath, committedOutput.content);
@@ -324,7 +324,7 @@ export async function runAgentConversation(params: RunnerParams): Promise<void> 
               } else {
                 const finalOutput =
                   toolMode === 'rw'
-                    ? await executeTool(tc.function!.name!, { ...args, apply: true })
+                    ? await executeTool(tc.function!.name!, { ...args, apply: true }, { chatId })
                     : output;
 
                 if (toolMode === 'rw' && finalOutput?.filePath && typeof finalOutput.content === 'string') {

@@ -18,7 +18,12 @@ contextBridge.exposeInMainWorld('electron', {
   },
   tools: {
     list: () => ipcRenderer.invoke('tool:list'),
-    execute: (name, input) => ipcRenderer.invoke('tool:execute', { name, input }),
+    execute: (name, input, meta) => ipcRenderer.invoke('tool:execute', { name, input, meta }),
   },
-  getSystemPrompt: () => ipcRenderer.invoke('get-system-prompt'),
+  todos: {
+    get: (chatId) => ipcRenderer.invoke('todos:get', chatId),
+    set: (chatId, items) => ipcRenderer.invoke('todos:set', chatId, items),
+    clear: (chatId) => ipcRenderer.invoke('todos:clear', chatId),
+  },
+  getSystemPrompt: (chatId) => ipcRenderer.invoke('get-system-prompt', chatId),
 });

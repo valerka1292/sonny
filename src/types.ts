@@ -62,6 +62,14 @@ export interface ChatData {
   pinned?: boolean;
 }
 
+export type TodoStatus = 'pending' | 'in_progress' | 'completed';
+
+export interface TodoItem {
+  content: string;
+  activeForm: string;
+  status: TodoStatus;
+}
+
 export interface LlmHistoryMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
