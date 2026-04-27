@@ -1,6 +1,12 @@
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-markdown';
 import type { DiffFile, ToolRendererProps } from '../../types';
 
 function getLanguage(filePath: string): string {
@@ -10,6 +16,26 @@ function getLanguage(filePath: string): string {
   if (filePath.endsWith('.css')) return 'css';
   if (filePath.endsWith('.md')) return 'markdown';
   return 'text';
+}
+
+function getPrismLanguage(language: string): string {
+  if (language === 'typescript') return 'typescript';
+  if (language === 'javascript') return 'javascript';
+  if (language === 'json') return 'json';
+  if (language === 'css') return 'css';
+  if (language === 'markdown') return 'markdown';
+  return 'plain';
+}
+
+function highlightHunkLines(diff: DiffFile, language: string): string[][] {
+  const prismLang = getPrismLanguage(language);
+  const grammar = Prism.languages[prismLang] || Prism.languages.plain;
+
+  return diff.hunks.map((hunk) => {
+    const joined = hunk.lines.map((line) => line.content).join('\n');
+    const highlighted = Prism.highlight(joined, grammar, prismLang);
+    return highlighted.split('\n');
+  });
 }
 
 export default function DiffRenderer({ toolCall }: ToolRendererProps) {
@@ -43,6 +69,7 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
   }
 
   const language = diff.language || getLanguage(diff.filePath);
+  const highlightedHunks = useMemo(() => highlightHunkLines(diff, language), [diff, language]);
 
   return (
     <div className="my-2 rounded-lg border border-border bg-bg-2 overflow-hidden max-w-full">
@@ -90,22 +117,10 @@ export default function DiffRenderer({ toolCall }: ToolRendererProps) {
                       </span>
                     </div>
 
-                    <div className="flex-1 min-w-0 whitespace-pre-wrap break-all py-0.5 pr-3">
-                      <SyntaxHighlighter
-                        language={language}
-                        style={vscDarkPlus}
-                        customStyle={{
-                          margin: 0,
-                          padding: 0,
-                          background: 'transparent',
-                          fontSize: 'inherit',
-                          display: 'inline',
-                        }}
-                        codeTagProps={{ style: { background: 'transparent' } }}
-                      >
-                        {line.content}
-                      </SyntaxHighlighter>
-                    </div>
+                    <div
+                      className="flex-1 min-w-0 whitespace-pre-wrap break-all py-0.5 pr-3"
+                      dangerouslySetInnerHTML={{ __html: highlightedHunks[hunkIdx]?.[lineIdx] ?? '' }}
+                    />
                   </div>
                 );
               })}

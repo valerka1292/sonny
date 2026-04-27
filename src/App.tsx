@@ -2,27 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import MessageList from './components/MessageList';
 import InputArea from './components/InputArea';
-import PendingConfirmationCard from './components/PendingConfirmationCard';
 import SettingsModal from './components/SettingsModal';
 import Titlebar from './components/Titlebar';
 import { AgentMode, LlmHistoryMessage, Message, ToolCall } from './types';
-import { generateChatName, getToolDefinitions, streamChatCompletion } from './services/llmService';
 import { useProviders } from './hooks/useProviders';
 import { useChats } from './hooks/useChats';
-import { executeTool, getSystemPrompt } from './services/toolBridge';
-
-const MAX_TOOL_ITERATIONS = 10;
-
-function applyToolCallDelta(messages: Message[], assistantId: string, toolCall: ToolCall): Message[] {
-  return messages.map((m) => {
-    if (m.id !== assistantId) return m;
-    const toolCalls = [...(m.toolCalls || [])];
-    const idx = toolCalls.findIndex((tc) => tc.index === toolCall.index);
-    if (idx >= 0) toolCalls[idx] = { ...toolCalls[idx], ...toolCall };
-    else toolCalls.push(toolCall);
-    return { ...m, toolCalls };
-  });
-}
+import { runAgentConversation } from './services/agentRunner';
 
 export default function App() {
   const {
@@ -32,7 +17,6 @@ export default function App() {
     activeChatIdRef,
     messages,
     setMessages,
-    llmHistory,
     setLlmHistory,
     contextTokensUsed,
     setContextTokensUsed,
@@ -42,7 +26,6 @@ export default function App() {
     isTyping,
     setIsTyping,
     switchChat,
-    loadChat,
     newChat,
     createChat,
     renameChat,
@@ -113,263 +96,45 @@ export default function App() {
           timestamp: new Date(),
         };
 
-        console.log(`[App] Adding user message to chat ${chatIdSnapshot}`);
         let currentMessages = [...existingMessages, userMsg];
         setMessages(currentMessages);
 
-        const systemPromptText = await getSystemPrompt();
         const currentLlmHistory: LlmHistoryMessage[] = [...llmHistoryRef.current, { role: 'user', content }];
 
-        let toolIteration = 0;
-
-        const runIteration = async (history: LlmHistoryMessage[]) => {
-        const shouldProcessUpdate = () =>
-          isMountedRef.current &&
-          !requestController.signal.aborted &&
-          activeChatIdRef.current === chatIdSnapshot;
-
-        if (toolIteration++ >= MAX_TOOL_ITERATIONS) {
-          console.error('[App] Max tool iterations reached');
-          if (shouldProcessUpdate()) setIsTyping(false);
-          return;
-        }
-
-        const assistantId = (Date.now() + toolIteration).toString();
-        const assistantMsg: Message = {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          thinking: '',
-          toolCalls: [],
-        };
-
-        let workingMessages = [...currentMessages, assistantMsg];
-        if (!shouldProcessUpdate()) return;
-        setMessages(workingMessages);
-        setIsTyping(true);
-
-        let finalAssistantContent = '';
-        let finalAssistantThinking = '';
-        const finalToolCalls = new Map<number, ToolCall>();
-        const toolDefinitions = await getToolDefinitions();
-
-        const historyForLLM: LlmHistoryMessage[] = [{ role: 'system', content: systemPromptText }, ...history];
-
-        console.log(`[App] Starting iteration ${toolIteration}...`);
-        await streamChatCompletion(
-          activeProvider,
-          historyForLLM,
-          {
-            onContent: (text) => {
-              if (!shouldProcessUpdate()) return;
-              finalAssistantContent += text;
-              workingMessages = workingMessages.map((m) =>
-                m.id === assistantId ? { ...m, content: m.content + text } : m,
-              );
-              setMessages(workingMessages);
-              scheduleAutoSave();
-            },
-            onThinking: (text) => {
-              if (!shouldProcessUpdate()) return;
-              finalAssistantThinking += text;
-              workingMessages = workingMessages.map((m) =>
-                m.id === assistantId ? { ...m, thinking: (m.thinking ?? '') + text } : m,
-              );
-              setMessages(workingMessages);
-              scheduleAutoSave();
-            },
-            onToolCall: (toolCall) => {
-              if (!shouldProcessUpdate()) return;
-              const existing = finalToolCalls.get(toolCall.index) || {};
-              finalToolCalls.set(toolCall.index, { ...existing, ...toolCall });
-
-              workingMessages = applyToolCallDelta(workingMessages, assistantId, toolCall);
-              setMessages(workingMessages);
-              scheduleAutoSave();
-            },
-            onDone: async (usage) => {
-              if (!shouldProcessUpdate()) return;
-              
-              const finalToolCallsList = Array.from(finalToolCalls.values());
-              const lastAssistant: Message = {
-                ...assistantMsg,
-                content: finalAssistantContent,
-                thinking: finalAssistantThinking,
-                toolCalls: finalToolCallsList,
-              };
-              
-              currentMessages = [...currentMessages, lastAssistant];
-              setMessages(currentMessages);
-              
-              // Correct LLM History update
-              const historyWithAssistant: LlmHistoryMessage[] = [...history, {
-                role: 'assistant',
-                content: finalAssistantContent || '',
-                ...(finalToolCallsList.length > 0 ? { tool_calls: finalToolCallsList.map(tc => ({
-                  id: tc.id,
-                  type: 'function',
-                  function: {
-                    name: tc.function?.name,
-                    arguments: tc.function?.arguments
-                  }
-                })) } : {})
-              }];
-              
-              if (usage?.total_tokens) setContextTokensUsed(usage.total_tokens);
-
-              if (finalToolCallsList.length > 0) {
-                console.log(`[App] Executing ${finalToolCallsList.length} tools...`);
-                const toolResultsHistory = [...historyWithAssistant];
-                
-                for (const tc of finalToolCallsList) {
-                  const tcIndexInMsg = currentMessages.length - 1;
-                  try {
-                    currentMessages[tcIndexInMsg] = {
-                      ...currentMessages[tcIndexInMsg],
-                      toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t => 
-                        t.index === tc.index ? { ...t, result: { status: 'running' } } : t
-                      )
-                    };
-                    if (!shouldProcessUpdate()) return;
-                    setMessages([...currentMessages]);
-
-                    let args = {};
-                    try {
-                      args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-                    } catch (error: any) {
-                      throw new Error(`Invalid JSON arguments for tool ${tc.function?.name || 'unknown'}: ${error.message}`);
-                    }
-                    const output = await executeTool(tc.function!.name!, args);
-                    const toolDef = toolDefinitions.find(t => t.function?.name === tc.function?.name);
-                    const toolMode = toolDef?.mode ?? 'ro';
-
-                    currentMessages[tcIndexInMsg] = {
-                      ...currentMessages[tcIndexInMsg],
-                      toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t => 
-                        t.index === tc.index ? { ...t, result: { status: 'success', output } } : t
-                      )
-                    };
-                    
-                    if (toolMode === 'rw' && !yoloMode) {
-                      const decision = await new Promise<{ approved: boolean; reason?: string }>((resolve) => {
-                        confirmationResolverRef.current = resolve;
-                        setPendingConfirmation({ toolCall: tc, output });
-                      });
-                      confirmationResolverRef.current = null;
-                      setPendingConfirmation(null);
-
-                      if (decision.approved) {
-                        const committedOutput = await executeTool(tc.function!.name!, {
-                          file_path: output.filePath,
-                          content: output.content,
-                          apply: true,
-                        });
-
-                        currentMessages[tcIndexInMsg] = {
-                          ...currentMessages[tcIndexInMsg],
-                          toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
-                            t.index === tc.index ? { ...t, result: { status: 'success', output: committedOutput } } : t
-                          ),
-                        };
-
-                        const resultContent = committedOutput?.type === 'update'
-                          ? `The file ${committedOutput.filePath} has been updated successfully.`
-                          : `File created successfully at: ${committedOutput.filePath}`;
-                        toolResultsHistory.push({
-                          role: 'tool',
-                          tool_call_id: tc.id,
-                          content: resultContent,
-                        });
-                      } else {
-                        currentMessages[tcIndexInMsg] = {
-                          ...currentMessages[tcIndexInMsg],
-                          toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
-                            t.index === tc.index ? { ...t, result: { status: 'error', error: decision.reason || 'User rejected operation' } } : t
-                          ),
-                        };
-                        toolResultsHistory.push({
-                          role: 'tool',
-                          tool_call_id: tc.id,
-                          content: `Error: User rejected the operation. Reason: ${decision.reason || 'No reason provided'}`,
-                        });
-                      }
-                    } else {
-                      const finalOutput = toolMode === 'rw'
-                        ? await executeTool(tc.function!.name!, {
-                          file_path: output.filePath,
-                          content: output.content,
-                          apply: true,
-                        })
-                        : output;
-
-                      currentMessages[tcIndexInMsg] = {
-                        ...currentMessages[tcIndexInMsg],
-                        toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t =>
-                          t.index === tc.index ? { ...t, result: { status: 'success', output: finalOutput } } : t
-                        ),
-                      };
-
-                      toolResultsHistory.push({
-                        role: 'tool',
-                        tool_call_id: tc.id,
-                        content: typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput),
-                      });
-                    }
-                  } catch (error: any) {
-                    currentMessages[tcIndexInMsg] = {
-                      ...currentMessages[tcIndexInMsg],
-                      toolCalls: currentMessages[tcIndexInMsg].toolCalls?.map(t => 
-                        t.index === tc.index ? { ...t, result: { status: 'error', error: error.message } } : t
-                      )
-                    };
-                    toolResultsHistory.push({ 
-                      role: 'tool', 
-                      tool_call_id: tc.id, 
-                      content: `Error: ${error.message}` 
-                    });
-                  }
-                  if (!shouldProcessUpdate()) return;
-                  setMessages([...currentMessages]);
-                }
-
-                if (!shouldProcessUpdate()) return;
-                await runIteration(toolResultsHistory);
-              } else {
-                if (!shouldProcessUpdate()) return;
-                setIsTyping(false);
-                setLlmHistory(historyWithAssistant);
-                await persistChatData(chatIdSnapshot, currentMessages, historyWithAssistant, usage?.total_tokens ?? contextTokensUsedRef.current);
-                
-                if (isFirstMessage) {
-                  const title = await generateChatName(activeProvider, content, requestController.signal);
-                  if (activeChatIdRef.current === chatIdSnapshot) await renameChat(chatIdSnapshot, title);
-                }
-              }
-            },
-            onError: async (error: any) => {
-              console.error('[App] Stream error:', error);
-              if (!shouldProcessUpdate()) return;
-              setIsTyping(false);
-              const errorAssistantMsg = {
-                ...assistantMsg,
-                content: finalAssistantContent || `Error: ${error.message}`,
-                thinking: finalAssistantThinking,
-                toolCalls: Array.from(finalToolCalls.values()),
-              };
-              const erroredMessages = [...currentMessages, errorAssistantMsg];
-              setMessages(erroredMessages);
-              const erroredHistory: LlmHistoryMessage[] = [...history, { role: 'assistant', content: errorAssistantMsg.content }];
-              setLlmHistory(erroredHistory);
-              await persistChatData(chatIdSnapshot, erroredMessages, erroredHistory, contextTokensUsedRef.current);
-            },
+        await runAgentConversation({
+          provider: activeProvider,
+          content,
+          chatId: chatIdSnapshot,
+          requestController,
+          isFirstMessage,
+          yoloMode,
+          history: currentLlmHistory,
+          messages: currentMessages,
+          activeChatIdRef,
+          isMountedRef,
+          onMessages: setMessages,
+          onTyping: setIsTyping,
+          onHistory: setLlmHistory,
+          onTokens: setContextTokensUsed,
+          onAutosave: scheduleAutoSave,
+          onPersist: async (nextMessages, nextHistory, tokens) => {
+            await persistChatData(chatIdSnapshot, nextMessages, nextHistory, tokens);
           },
-          requestController.signal,
-          toolDefinitions
-        );
-        };
-
-        await runIteration(currentLlmHistory);
+          onRenameChat: async (title) => {
+            await renameChat(chatIdSnapshot, title);
+          },
+          askConfirmation: async (toolCall, output) => {
+            return new Promise<{ approved: boolean; reason?: string }>((resolve) => {
+              confirmationResolverRef.current = (decision) => {
+                confirmationResolverRef.current = null;
+                setPendingConfirmation(null);
+                resolve(decision);
+              };
+              setPendingConfirmation({ toolCall, output });
+            });
+          },
+          getContextTokens: () => contextTokensUsedRef.current,
+        });
       } catch (error) {
         console.error('[App] Failed to process send flow', error);
         setIsTyping(false);
@@ -380,10 +145,21 @@ export default function App() {
       }
     },
     [
-      activeChatIdRef, activeProvider, cancelPendingRequest, createChat, 
-      persistChatData, renameChat, scheduleAutoSave, messagesRef, 
-      llmHistoryRef, contextTokensUsedRef, setContextTokensUsed, 
-      setIsTyping, setLlmHistory, setMessages
+      activeChatIdRef,
+      activeProvider,
+      cancelPendingRequest,
+      createChat,
+      yoloMode,
+      llmHistoryRef,
+      messagesRef,
+      contextTokensUsedRef,
+      setMessages,
+      setIsTyping,
+      setLlmHistory,
+      setContextTokensUsed,
+      scheduleAutoSave,
+      persistChatData,
+      renameChat,
     ],
   );
 

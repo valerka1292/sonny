@@ -57,7 +57,8 @@ Usage:
     });
   }
 
-  async execute(input, context) {
+  async execute(rawInput, context) {
+    const input = this.inputSchema.parse(rawInput);
     const { cwd } = context;
     const fullFilePath = checkPathInSandbox(input.file_path, cwd);
 
