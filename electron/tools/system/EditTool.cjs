@@ -115,17 +115,23 @@ Usage:
 
     const lastRead = readFileState.get(fullFilePath);
     if (!lastRead) {
-      throw new Error('File has not been read yet. Use the Read tool to read it first.');
+      throw new Error(
+        `File has not been read yet. Call \`Read\` on "${input.file_path}" first this turn, then retry the Edit.`,
+      );
     }
     if (stat.mtimeMs > lastRead.timestamp) {
-      throw new Error('File has been modified since it was read. Read it again before attempting to edit.');
+      throw new Error(
+        `File has been modified since it was read. Call \`Read\` on "${input.file_path}" again to re-sync, then retry the Edit.`,
+      );
     }
 
     const originalFile = await fs.readFile(fullFilePath, { encoding: 'utf-8', signal: context.signal });
 
     const actualOldString = findActualString(originalFile, input.old_string);
     if (actualOldString === null) {
-      throw new Error(`String to replace not found in file.\nString: ${input.old_string}`);
+      throw new Error(
+        `\`old_string\` was not found in "${input.file_path}". Re-\`Read\` the file and copy the exact substring you want to replace (including surrounding whitespace and indentation), then retry. Do not paraphrase.\nString you sent: ${JSON.stringify(input.old_string)}`,
+      );
     }
 
     const replaceAll = Boolean(input.replace_all);

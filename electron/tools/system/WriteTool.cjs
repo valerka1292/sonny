@@ -74,11 +74,15 @@ Usage:
     if (oldContent !== null) {
       const lastRead = readFileState.get(fullFilePath);
       if (!lastRead) {
-        throw new Error('File has not been read yet. Use the Read tool to read it first.');
+        throw new Error(
+          `File "${input.file_path}" already exists but has not been read yet. Call \`Read\` on it first this turn so you know what you're overwriting, then retry the Write — or use \`Edit\` if you only need a focused change.`,
+        );
       }
       const stat = await fs.stat(fullFilePath, { signal: context.signal });
       if (stat.mtimeMs > lastRead.timestamp) {
-        throw new Error('File has been modified since it was read. Read it again before attempting to write.');
+        throw new Error(
+          `File "${input.file_path}" has been modified since it was read. Call \`Read\` on it again to re-sync, then retry the Write.`,
+        );
       }
     }
 
