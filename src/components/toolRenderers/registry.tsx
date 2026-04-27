@@ -4,6 +4,7 @@ import GlobRenderer from './GlobRenderer';
 import GrepRenderer from './GrepRenderer';
 import DiffRenderer from './DiffRenderer';
 import ReadRenderer from './ReadRenderer';
+import TodoRenderer from './TodoRenderer';
 
 const rendererMap: Record<string, React.FC<ToolRendererProps>> = {
   Glob: GlobRenderer,
@@ -13,6 +14,7 @@ const rendererMap: Record<string, React.FC<ToolRendererProps>> = {
   Write: DiffRenderer,
   Edit: DiffRenderer,
   Read: ReadRenderer,
+  TodoWrite: TodoRenderer,
 };
 
 export function getToolRenderer(name?: string): React.FC<ToolRendererProps> | null {

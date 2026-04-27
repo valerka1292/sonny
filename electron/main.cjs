@@ -12,6 +12,9 @@ require('./tools/system/GlobTool.cjs');
 require('./tools/system/ReadTool.cjs');
 require('./tools/system/WriteTool.cjs');
 require('./tools/system/EditTool.cjs');
+require('./tools/system/TodoWriteTool.cjs');
+
+const { readTodos, writeTodos, clearTodos } = require('./tools/system/todoStore.cjs');
 
 const isDev = process.env.NODE_ENV === 'development';
 const sonnyDir = path.join(os.homedir(), '.sonny');
@@ -205,7 +208,7 @@ async function listChats() {
 function registerIpc() {
   // Tools
   ipcMain.handle('tool:list', async () => registry.list());
-  ipcMain.handle('tool:execute', async (event, { name, input }) => {
+  ipcMain.handle('tool:execute', async (event, { name, input, meta }) => {
     const tool = registry.get(name);
     if (!tool) throw new Error(`Tool ${name} not found`);
     await ensureDir(sandboxPath);
@@ -215,6 +218,10 @@ function registerIpc() {
       cwd: sandboxPath,
       signal: controller.signal,
       timeoutMs: TOOL_EXEC_TIMEOUT_MS,
+      // chatId is supplied by the renderer so session-scoped tools (TodoWrite)
+      // can persist per-chat state without leaking it through the LLM-visible
+      // input schema.
+      chatId: typeof meta?.chatId === 'string' ? meta.chatId : null,
       throwIfAborted: () => {
         if (controller.signal.aborted) throw new Error(`Tool ${name} aborted`);
       },
@@ -239,8 +246,24 @@ function registerIpc() {
   });
 
   // Prompts
-  ipcMain.handle('get-system-prompt', async () => {
-    return getSystemPrompt(sandboxPath, promptsDir);
+  ipcMain.handle('get-system-prompt', async (_, chatId) => {
+    const safeChatId = typeof chatId === 'string' ? chatId : null;
+    return getSystemPrompt(sandboxPath, promptsDir, safeChatId);
+  });
+
+  // Todos
+  ipcMain.handle('todos:get', async (_, chatId) => {
+    if (typeof chatId !== 'string') return [];
+    return readTodos(chatId);
+  });
+  ipcMain.handle('todos:set', async (_, chatId, items) => {
+    if (typeof chatId !== 'string') return [];
+    if (!Array.isArray(items)) return [];
+    return writeTodos(chatId, items);
+  });
+  ipcMain.handle('todos:clear', async (_, chatId) => {
+    if (typeof chatId !== 'string') return [];
+    return clearTodos(chatId);
   });
 
   // Providers & History

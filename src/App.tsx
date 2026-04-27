@@ -240,6 +240,7 @@ export default function App() {
           contextTokensUsed={contextTokensUsed}
           yoloMode={yoloMode}
           onYoloModeChange={setYoloMode}
+          activeChatId={activeChatId ?? null}
           disabled={Boolean(pendingConfirmation)}
         />
 

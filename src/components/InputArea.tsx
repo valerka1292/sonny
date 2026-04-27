@@ -1,10 +1,11 @@
 import React from 'react';
-import { Send, ChevronDown, Play, Square } from 'lucide-react';
+import { Send, ChevronDown, ListTodo, Play, Square } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { AgentMode } from '../types';
 import { AGENT_MODES } from '../constants';
 import { cn } from '../lib/utils';
 import { ContextIndicator } from './ContextIndicator';
+import TodoModal from './TodoModal';
 
 interface InputAreaProps {
   mode: AgentMode;
@@ -16,6 +17,7 @@ interface InputAreaProps {
   contextTokensUsed?: number;
   yoloMode: boolean;
   onYoloModeChange: (enabled: boolean) => void;
+  activeChatId: string | null;
   disabled?: boolean;
 }
 
@@ -29,9 +31,11 @@ export default function InputArea({
   contextTokensUsed,
   yoloMode,
   onYoloModeChange,
+  activeChatId,
   disabled = false,
 }: InputAreaProps) {
   const [text, setText] = React.useState('');
+  const [todoModalOpen, setTodoModalOpen] = React.useState(false);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const canSend = Boolean(text.trim()) && hasProvider && !disabled;
   const isModeLocked = true;
@@ -116,16 +120,30 @@ export default function InputArea({
               </Select.Portal>
             </Select.Root>
 
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
-              <input
-                type="checkbox"
-                checked={yoloMode}
-                onChange={(event) => onYoloModeChange(event.target.checked)}
-                className="h-3.5 w-3.5"
-              />
-              YOLO Mode
-            </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setTodoModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-bg-2 px-2.5 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-3 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                title="View current tasks"
+              >
+                <ListTodo size={13} />
+                View tasks
+              </button>
+
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={yoloMode}
+                  onChange={(event) => onYoloModeChange(event.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                YOLO Mode
+              </label>
+            </div>
           </div>
+
+          <TodoModal open={todoModalOpen} onOpenChange={setTodoModalOpen} chatId={activeChatId} />
 
           {mode === 'Chat' ? (
             <div className="flex items-end gap-2 px-4 pb-3">
